@@ -1,8 +1,11 @@
-use axum::{routing::get, Router};
 use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
+use routes::create_routes;
+
+mod routes;
+mod handlers;
 
 #[derive(Debug)]
 enum ApiError {
@@ -33,28 +36,9 @@ impl IntoResponse for ApiError {
     }
 }
 
-async fn health_check() -> impl IntoResponse {
-    Json(json!({
-        "status": "ok",
-        "message": "Server is running",
-    }))
-}
-
-async fn users() -> Result<Json<Value>, ApiError> {
-    Err(ApiError::NotFound)
-}
-
-fn create_app() -> Router {
-    Router::new()
-        .route("/health",
-               get(health_check))
-        .route("/users",
-               get(users))
-}
-
 #[tokio::main]
 async fn main() {
-    let app = create_app();
+    let app = create_routes();
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
