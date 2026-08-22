@@ -7,6 +7,7 @@ use routes::create_routes;
 mod routes;
 mod handlers;
 mod middleware;
+mod jwt;
 
 #[derive(Debug)]
 enum ApiError {
