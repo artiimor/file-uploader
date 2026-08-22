@@ -6,12 +6,14 @@ use routes::create_routes;
 
 mod routes;
 mod handlers;
+mod middleware;
 
 #[derive(Debug)]
 enum ApiError {
     NotFound, // 404
     InvalidInput(String), // 400
-    InternalServerError,// 500
+    InternalServerError, // 500
+    Unauthorized, // 401
 }
 
 impl IntoResponse for ApiError {
@@ -26,6 +28,10 @@ impl IntoResponse for ApiError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".to_string(),
             ),
+            ApiError::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                "Unauthorized".to_string(),
+            ),
         };
 
         let body = Json(json!{{
@@ -38,6 +44,7 @@ impl IntoResponse for ApiError {
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
     let app = create_routes();
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
