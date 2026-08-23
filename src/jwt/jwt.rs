@@ -5,10 +5,10 @@ use axum::http::StatusCode;
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
-    sub: String,   // id del usuario
+    pub sub: String,   // id del usuario
     exp: usize,    // expiración (unix timestamp)
-    iat: usize,    // issued at (unix timestamp)
-    scope: String, // Upload/Download
+    pub iat: usize,    // issued at (unix timestamp)
+    pub scope: String, // Upload/Download
 }
 
 fn jwt_secret() -> String {
