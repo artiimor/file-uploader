@@ -1,7 +1,7 @@
 use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use axum::Json;
-use serde_json::{json, Value};
+use serde_json::json;
 use routes::create_routes;
 
 mod routes;

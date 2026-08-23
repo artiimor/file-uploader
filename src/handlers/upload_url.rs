@@ -1,6 +1,6 @@
 use axum::response::IntoResponse;
 use axum::Json;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::jwt::generate_jwt_upload_token;
 

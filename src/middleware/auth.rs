@@ -1,9 +1,7 @@
 use axum::{
-    Router,
     http::StatusCode,
-    routing::get,
     response::{IntoResponse, Response},
-    middleware::{self, Next},
+    middleware::Next,
     extract::Request,
 };
 
