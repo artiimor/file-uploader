@@ -1,60 +1,18 @@
-use axum::response::IntoResponse;
-use axum::http::StatusCode;
-use axum::Json;
-use serde_json::json;
-use routes::create_routes;
-
-mod routes;
-mod handlers;
-mod middleware;
-mod jwt;
-
-#[derive(Debug)]
-enum ApiError {
-    NotFound, // 404
-    InvalidInput(String), // 400
-    InternalServerError, // 500
-    Unauthorized, // 401
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        let(status, error_message) = match self {
-            ApiError::NotFound => (
-                StatusCode::NOT_FOUND, "Not found".to_string()),
-            ApiError::InvalidInput(msg) => (
-                StatusCode::BAD_REQUEST, msg,
-            ),
-            ApiError::InternalServerError => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error".to_string(),
-            ),
-            ApiError::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                "Unauthorized".to_string(),
-            ),
-        };
-
-        let body = Json(json!{{
-            "error": error_message,
-        }});
-
-        (status, body).into_response()
-    }
-}
+use axum::{
+    routing::get,
+    Router,
+};
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().ok();
-    let app = create_routes();
+   let app = Router::<()>::new()
+       .route("/health", get(health));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
-        .await
-        .expect("Error binding TCP listener");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-    println!("Server running on localhost:3000");
+    axum::serve(listener, app).await.unwrap();
+}
 
-    axum::serve(listener, app)
-        .await
-        .expect("Error serving app");
+async fn health() -> String {
+    "igbbmn".to_string()
 }
