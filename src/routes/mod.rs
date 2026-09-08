@@ -1,5 +1,5 @@
 use axum::{
-    routing::{get, post},
+    routing::{get, put},
     Router,
 };
 
@@ -12,6 +12,6 @@ use crate::handlers::photos::{
 pub fn router() -> Router{
     Router::<()>::new()
         .route("/health", get(health))
-        .route("/files/{photo_path}", get(get_files).post(upload_file))
+        .route("/files/{id}", get(get_files).put(upload_file))
 }
 
