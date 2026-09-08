@@ -2,16 +2,9 @@ use axum::{
     response::{ Response, IntoResponse },
     extract::{Path, Json, Multipart},
 };
-use serde::Deserialize;
 use crate::ResponseError;
-use std::fs;
 use std::fs::File;
 use std::io::Write;
-
-#[derive(Deserialize)]
-pub struct MyPayload {
-    file_path: String,
-}
 
 pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
@@ -34,7 +27,7 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
         let path = format!("files/{id}/{name}"); // TODO parse this to avoid inconsistencies and also handle errors when file already exists
         // Create parent directories
         if let Some(parent) = std::path::Path::new(&path).parent() {
-            fs::create_dir_all(parent).map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
+            std::fs::create_dir_all(parent).map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
         }
         // Now write the file
         let mut file = File::create(&path).map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?;
