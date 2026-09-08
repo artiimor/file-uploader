@@ -25,12 +25,7 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
          // TODO extract function for create the file and directories
         let name = field.name().unwrap().to_string();
         let path = format!("files/{id}/{name}"); // TODO parse this to avoid inconsistencies and also handle errors when file already exists
-        // Create parent directories
-        if let Some(parent) = std::path::Path::new(&path).parent() {
-            std::fs::create_dir_all(parent).map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
-        }
-        // Now write the file
-        let mut file = File::create(&path).map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?;
+        let mut file = create_file(&path, &name).map_err(|err| err)?;
 
         // Write the data
         while let Some(chunk) = field
@@ -44,4 +39,12 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
         }
     }
     Ok("File uploaded!".to_string().into_response())
+}
+
+pub fn create_file(path: &String, name: &String) -> Result<File, ResponseError> {
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(parent).map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
+    }
+
+    Ok(File::create(&path).map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?)
 }
