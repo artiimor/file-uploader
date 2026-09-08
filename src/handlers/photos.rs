@@ -16,7 +16,6 @@ pub async fn get_files(Path(photo_path): Path<String>) -> String {
 }
 
 pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Result<Response, ResponseError> {
-    // TODO Upload file
     while let Some(mut field) = multipart
             .next_field()
             .await
