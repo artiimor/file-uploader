@@ -22,8 +22,7 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
             .await
             .map_err(|err| ResponseError::Upload(err.to_string()))? { // TODO repasar esto, en especial el ?
 
-         // TODO extract function for create the file and directories
-        let name = field.name().unwrap().to_string();
+        let name = field.name().unwrap().to_string(); // TODO Remove the unwrap
         let path = format!("files/{id}/{name}"); // TODO parse this to avoid inconsistencies and also handle errors when file already exists
         let mut file = create_file(&path, &name).map_err(|err| err)?;
 
@@ -46,5 +45,6 @@ pub fn create_file(path: &String, name: &String) -> Result<File, ResponseError> 
         std::fs::create_dir_all(parent).map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
     }
 
+    // TODO wrong error handling
     Ok(File::create(&path).map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?)
 }
