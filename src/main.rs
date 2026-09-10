@@ -11,6 +11,7 @@ enum ResponseError {
     InternalError,
     Wololo,
     Upload(String),
+    FileExtError,
 }
 
 impl IntoResponse for ResponseError {
@@ -20,6 +21,7 @@ impl IntoResponse for ResponseError {
         ResponseError::InternalError => (StatusCode::INTERNAL_SERVER_ERROR, "Error 500 internal error".to_string()).into_response(),
         ResponseError::Wololo => (StatusCode::ACCEPTED, "Wololo".to_string()).into_response(),
         ResponseError::Upload(message) => (StatusCode::NOT_ACCEPTABLE, message).into_response(),
+        ResponseError::FileExtError => (StatusCode::NOT_ACCEPTABLE, "File extension not acceptable".to_string()).into_response(),
         }
     }
 }

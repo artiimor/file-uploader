@@ -1,18 +1,38 @@
 use axum::{
     response::{ Response, IntoResponse },
     extract::{Path, Json, Multipart},
+    http::header,
+    body::Body,
 };
+use tokio_util::io::ReaderStream;
 use crate::ResponseError;
 use std::fs::File;
 use std::io::Write;
+use tokio::fs::File as TokioFile;
+use std::path::Path as StdPath;
 
 pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
 }
 
-pub async fn get_files(Path(photo_path): Path<String>) -> String {
-    // TODO download or error
-    photo_path
+pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+    let path = format!("files/{id}/{file_name}"); // TODO parse name and id
+    let ext = StdPath::new(&file_name)
+        .extension()
+        .ok_or(ResponseError::FileExtError)?; // TODO repasar manejo de errores en options y results
+    let file = TokioFile::open(&path).await.map_err(|_| ResponseError::NotFound)?;
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+
+    let headers = [
+        (header::CONTENT_TYPE, format!("application/{:?}", ext.to_str())), // TODO fix for all file type
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{file_name}\""),
+        ),
+    ];
+
+    Ok((headers, body).into_response())
 }
 
 pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Result<Response, ResponseError> {
@@ -23,7 +43,7 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
 
         let name = field.name().unwrap().to_string(); // TODO Remove the unwrap
         let path = format!("files/{id}/{name}"); // TODO parse this to avoid inconsistencies and also handle errors when file already exists
-        let mut file = create_file(&path, &name).map_err(|err| err)?;
+        let mut file = create_file(&path).map_err(|err| err)?;
 
         // Write the data
         while let Some(chunk) = field
@@ -39,7 +59,7 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
     Ok("File uploaded!".to_string().into_response())
 }
 
-pub fn create_file(path: &String, name: &String) -> Result<File, ResponseError> {
+pub fn create_file(path: &String) -> Result<File, ResponseError> {
     if let Some(parent) = std::path::Path::new(&path).parent() {
         std::fs::create_dir_all(parent).map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
     }
@@ -47,3 +67,4 @@ pub fn create_file(path: &String, name: &String) -> Result<File, ResponseError> 
     // TODO wrong error handling
     Ok(File::create(&path).map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?)
 }
+
