@@ -1,7 +1,7 @@
 use axum::{
     response::{ Response, IntoResponse },
-    extract::{Path, Json, Multipart},
-    http::header,
+    extract::{Path, Multipart},
+    http::{header, StatusCode},
     body::Body,
 };
 use tokio_util::io::ReaderStream;
@@ -10,6 +10,8 @@ use std::fs::File;
 use std::io::Write;
 use tokio::fs::File as TokioFile;
 use std::path::Path as StdPath;
+use std::fs::remove_file;
+use tokio::fs::metadata;
 
 pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
@@ -68,3 +70,17 @@ pub fn create_file(path: &String) -> Result<File, ResponseError> {
     Ok(File::create(&path).map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?)
 }
 
+pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+    let file_path = format!("files/{id}/{file_name}");
+    match remove_file(&file_path) {
+        Ok(_) => Ok((StatusCode::OK, format!("file {file_path} deleted successfully!")).into_response()),
+        Err(_) => Err(ResponseError::NotFound),
+    }
+}
+
+pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+    let file_path = format!("files/{id}/{file_name}");
+    let metadata = metadata(file_path).await.map_err(|_| ResponseError::NotFound)?;
+
+    Ok((StatusCode::OK, format!("The file size is {} bytes!", metadata.len())).into_response())
+}

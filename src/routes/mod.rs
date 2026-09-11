@@ -8,6 +8,7 @@ use crate::handlers::photos::{
     get_files,
     upload_file,
     delete_file,
+    get_metadata,
 };
 
 pub fn router() -> Router{
@@ -15,5 +16,6 @@ pub fn router() -> Router{
         .route("/health", get(health))
         .route("/files/{id}", put(upload_file).delete(delete_file))
         .route("/files/{id}/{file_name}", get(get_files).delete(delete_file))
+        .route("/files/{id}/{file_name}/metadata", get(get_metadata))
 }
 
