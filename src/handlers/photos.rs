@@ -12,12 +12,16 @@ use tokio::fs::File as TokioFile;
 use std::path::Path as StdPath;
 use std::fs::remove_file;
 use tokio::fs::metadata;
+use regex::Regex;
 
 pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
 }
 
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+    check_file_name_regex(&file_name).map_err(|err| err)?;
+    check_id_regex(&id).map_err(|err| err)?;
+
     let path = format!("files/{id}/{file_name}"); // TODO parse name and id
     let ext = StdPath::new(&file_name)
         .extension()
@@ -38,12 +42,17 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<
 }
 
 pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Result<Response, ResponseError> {
-    while let Some(mut field) = multipart
-            .next_field()
-            .await
-            .map_err(|err| ResponseError::Upload(err.to_string()))? { // TODO repasar esto, en especial el ?
+    check_id_regex(&id).map_err(|err| err)?;
 
-        let name = field.name().unwrap().to_string(); // TODO Remove the unwrap
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|err| ResponseError::Upload(err.to_string()))? { // TODO repasar esto, en especial el ?
+
+        let name = field.name().ok_or(ResponseError::InvalidPath)?;
+        let name = name.to_string();
+        check_file_name_regex(&name).map_err(|err| err)?;
+
         let path = format!("files/{id}/{name}"); // TODO parse this to avoid inconsistencies and also handle errors when file already exists
         let mut file = create_file(&path).map_err(|err| err)?;
 
@@ -53,7 +62,6 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
             .await
             .map_err(|err| ResponseError::Upload(err.to_string()))?
         {
-
             file.write_all(&chunk)
                 .map_err(|err| ResponseError::Upload(err.to_string()))?;
         }
@@ -71,6 +79,9 @@ pub fn create_file(path: &String) -> Result<File, ResponseError> {
 }
 
 pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+    check_file_name_regex(&file_name).map_err(|err| err)?;
+    check_id_regex(&id).map_err(|err| err)?;
+
     let file_path = format!("files/{id}/{file_name}");
     match remove_file(&file_path) {
         Ok(_) => Ok((StatusCode::OK, format!("file {file_path} deleted successfully!")).into_response()),
@@ -79,8 +90,27 @@ pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Resul
 }
 
 pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+    check_file_name_regex(&file_name).map_err(|err| err)?;
+    check_id_regex(&id).map_err(|err| err)?;
+
     let file_path = format!("files/{id}/{file_name}");
     let metadata = metadata(file_path).await.map_err(|_| ResponseError::NotFound)?;
 
     Ok((StatusCode::OK, format!("The file size is {} bytes!", metadata.len())).into_response())
+}
+
+fn check_file_name_regex(file_name: &String) -> Result<bool, ResponseError> {
+    let re = Regex::new(r"^[a-zA-Z0-9_-]*.[a-z]").unwrap();
+    if !re.is_match(file_name) {
+        return Err(ResponseError::InvalidFileName)
+    }
+    Ok(true)
+}
+
+fn check_id_regex(id: &String) -> Result<bool, ResponseError> {
+    let re = Regex::new(r"^[a-zA-Z0-9-]").unwrap();
+    if !re.is_match(id) {
+        return Err(ResponseError::InvalidId)
+    }
+    Ok(true)
 }

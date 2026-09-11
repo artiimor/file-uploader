@@ -12,16 +12,20 @@ enum ResponseError {
     Wololo,
     Upload(String),
     FileExtError,
+    InvalidPath,
+    InvalidId,
 }
 
+// TODO convert responses into json
 impl IntoResponse for ResponseError {
     fn into_response(self) -> Response {
         match self {
-        ResponseError::NotFound => (StatusCode::NOT_FOUND, "Error 404 not found".to_string()).into_response(),
-        ResponseError::InternalError => (StatusCode::INTERNAL_SERVER_ERROR, "Error 500 internal error".to_string()).into_response(),
-        ResponseError::Wololo => (StatusCode::ACCEPTED, "Wololo".to_string()).into_response(),
-        ResponseError::Upload(message) => (StatusCode::NOT_ACCEPTABLE, message).into_response(),
-        ResponseError::FileExtError => (StatusCode::NOT_ACCEPTABLE, "File extension not acceptable".to_string()).into_response(),
+            ResponseError::NotFound => (StatusCode::NOT_FOUND, "Error 404 not found".to_string()).into_response(),
+            ResponseError::InternalError => (StatusCode::INTERNAL_SERVER_ERROR, "Error 500 internal error".to_string()).into_response(),
+            ResponseError::Upload(message) => (StatusCode::NOT_ACCEPTABLE, message).into_response(),
+            ResponseError::FileExtError => (StatusCode::NOT_ACCEPTABLE, "File extension not acceptable".to_string()).into_response(),
+            ResponseError::InvalidId => (StatusCode::NOT_ACCEPTABLE, "Id is not valid".to_string()).into_response(),
+            ResponseError::InvalidFileName => (StatusCode::NOT_ACCEPTABLE, "File name is not valid".to_string()).into_response(),
         }
     }
 }
