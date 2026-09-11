@@ -9,14 +9,12 @@ mod handlers;
 enum ResponseError {
     NotFound,
     InternalError,
-    Wololo,
     Upload(String),
     FileExtError,
-    InvalidPath,
+    InvalidFileName,
     InvalidId,
 }
 
-// TODO convert responses into json
 impl IntoResponse for ResponseError {
     fn into_response(self) -> Response {
         match self {

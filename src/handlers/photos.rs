@@ -49,7 +49,7 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
         .await
         .map_err(|err| ResponseError::Upload(err.to_string()))? { // TODO repasar esto, en especial el ?
 
-        let name = field.name().ok_or(ResponseError::InvalidPath)?;
+        let name = field.name().ok_or(ResponseError::InvalidFileName)?;
         let name = name.to_string();
         check_file_name_regex(&name).map_err(|err| err)?;
 
@@ -100,17 +100,17 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
 }
 
 fn check_file_name_regex(file_name: &String) -> Result<bool, ResponseError> {
-    let re = Regex::new(r"^[a-zA-Z0-9_-]*.[a-z]").unwrap();
+    let re = Regex::new(r"^[a-zA-Z0-9_-]*\.[a-z]$").unwrap();
     if !re.is_match(file_name) {
         return Err(ResponseError::InvalidFileName)
     }
     Ok(true)
 }
 
-fn check_id_regex(id: &String) -> Result<bool, ResponseError> {
-    let re = Regex::new(r"^[a-zA-Z0-9-]").unwrap();
+fn check_id_regex(id: &String) -> Result<(), ResponseError> {
+    let re = Regex::new(r"^[a-zA-Z0-9-]+$").unwrap();
     if !re.is_match(id) {
         return Err(ResponseError::InvalidId)
     }
-    Ok(true)
+    Ok(())
 }
