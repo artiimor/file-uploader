@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::Write;
 use tokio::fs::File as TokioFile;
 use std::path::Path as StdPath;
-use std::fs::remove_file;
+use tokio::fs::remove_file;
 use tokio::fs::metadata;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -52,10 +52,10 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
 
         let name = field.file_name().ok_or(ResponseError::InvalidFileName)?;
         let name = name.to_string();
-        check_file_name_regex(&name).map_err(|err| err)?;
+        check_file_name_regex(&name)?;
 
         let path = format!("files/{id}/{name}"); // TODO parse this to avoid inconsistencies and also handle errors when file already exists
-        let mut file = create_file(&path).map_err(|err| err)?;
+        let mut file = create_file(&path).await?;
 
         // Write the data
         while let Some(chunk) = field
@@ -70,9 +70,9 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
     Ok("File uploaded!".to_string().into_response())
 }
 
-pub fn create_file(path: &String) -> Result<File, ResponseError> {
+pub async fn create_file(path: &String) -> Result<File, ResponseError> {
     if let Some(parent) = std::path::Path::new(&path).parent() {
-        std::fs::create_dir_all(parent).map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
+        tokio::fs::create_dir_all(parent).await.map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
     }
 
     // TODO wrong error handling
@@ -84,7 +84,7 @@ pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Resul
     check_id_regex(&id)?;
 
     let file_path = format!("files/{id}/{file_name}");
-    match remove_file(&file_path) {
+    match remove_file(&file_path).await {
         Ok(_) => Ok((StatusCode::OK, format!("file {file_path} deleted successfully!")).into_response()),
         Err(_) => Err(ResponseError::NotFound),
     }
