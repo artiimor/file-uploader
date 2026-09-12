@@ -47,7 +47,7 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
     while let Some(mut field) = multipart
         .next_field()
         .await
-        .map_err(|err| ResponseError::Upload(err.to_string()))? { // TODO repasar esto, en especial el ?
+        .map_err(|_| ResponseError::InternalError)? { // TODO repasar esto, en especial el ?
 
         let name = field.file_name().ok_or(ResponseError::InvalidFileName)?;
         let name = name.to_string();
@@ -60,11 +60,11 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
         while let Some(chunk) = field
             .chunk()
             .await
-            .map_err(|err| ResponseError::Upload(err.to_string()))?
+            .map_err(|_| ResponseError::InternalError)?
         {
             file.write_all(&chunk)
                 .await
-                .map_err(|err| ResponseError::Upload(err.to_string()))?;
+                .map_err(|_| ResponseError::InternalError)?;
         }
     }
     Ok("File uploaded!".to_string().into_response())
@@ -72,11 +72,10 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
 
 pub async fn create_file(path: &String) -> Result<TokioFile, ResponseError> {
     if let Some(parent) = std::path::Path::new(&path).parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
+        tokio::fs::create_dir_all(parent).await.map_err(|_| ResponseError::InternalError)?;
     }
 
-    // TODO wrong error handling
-    Ok(TokioFile::create(&path).await.map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?)
+    Ok(TokioFile::create(&path).await.map_err(|_| ResponseError::InternalError)?)
 }
 
 pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
