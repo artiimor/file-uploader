@@ -9,7 +9,6 @@ mod handlers;
 enum ResponseError {
     NotFound,
     InternalError,
-    Upload(String),
     FileExtError,
     InvalidFileName,
     InvalidId,
@@ -20,7 +19,6 @@ impl IntoResponse for ResponseError {
         match self {
             ResponseError::NotFound => (StatusCode::NOT_FOUND, "Error 404 not found".to_string()).into_response(),
             ResponseError::InternalError => (StatusCode::INTERNAL_SERVER_ERROR, "Error 500 internal error".to_string()).into_response(),
-            ResponseError::Upload(message) => (StatusCode::NOT_ACCEPTABLE, message).into_response(),
             ResponseError::FileExtError => (StatusCode::NOT_ACCEPTABLE, "File extension not acceptable".to_string()).into_response(),
             ResponseError::InvalidId => (StatusCode::NOT_ACCEPTABLE, "Id is not valid".to_string()).into_response(),
             ResponseError::InvalidFileName => (StatusCode::NOT_ACCEPTABLE, "File name is not valid".to_string()).into_response(),
