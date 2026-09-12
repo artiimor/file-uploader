@@ -13,14 +13,15 @@ use std::path::Path as StdPath;
 use std::fs::remove_file;
 use tokio::fs::metadata;
 use regex::Regex;
+use std::sync::LazyLock;
 
 pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
 }
 
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
-    check_file_name_regex(&file_name).map_err(|err| err)?;
-    check_id_regex(&id).map_err(|err| err)?;
+    check_file_name_regex(&file_name)?;
+    check_id_regex(&id)?;
 
     let path = format!("files/{id}/{file_name}"); // TODO parse name and id
     let ext = StdPath::new(&file_name)
@@ -42,14 +43,14 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<
 }
 
 pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Result<Response, ResponseError> {
-    check_id_regex(&id).map_err(|err| err)?;
+    check_id_regex(&id)?;
 
     while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|err| ResponseError::Upload(err.to_string()))? { // TODO repasar esto, en especial el ?
 
-        let name = field.name().ok_or(ResponseError::InvalidFileName)?;
+        let name = field.file_name().ok_or(ResponseError::InvalidFileName)?;
         let name = name.to_string();
         check_file_name_regex(&name).map_err(|err| err)?;
 
@@ -79,8 +80,8 @@ pub fn create_file(path: &String) -> Result<File, ResponseError> {
 }
 
 pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
-    check_file_name_regex(&file_name).map_err(|err| err)?;
-    check_id_regex(&id).map_err(|err| err)?;
+    check_file_name_regex(&file_name)?;
+    check_id_regex(&id)?;
 
     let file_path = format!("files/{id}/{file_name}");
     match remove_file(&file_path) {
@@ -90,8 +91,8 @@ pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Resul
 }
 
 pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
-    check_file_name_regex(&file_name).map_err(|err| err)?;
-    check_id_regex(&id).map_err(|err| err)?;
+    check_file_name_regex(&file_name)?;
+    check_id_regex(&id)?;
 
     let file_path = format!("files/{id}/{file_name}");
     let metadata = metadata(file_path).await.map_err(|_| ResponseError::NotFound)?;
@@ -99,18 +100,26 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
     Ok((StatusCode::OK, format!("The file size is {} bytes!", metadata.len())).into_response())
 }
 
-fn check_file_name_regex(file_name: &String) -> Result<bool, ResponseError> {
-    let re = Regex::new(r"^[a-zA-Z0-9_-]*\.[a-z]$").unwrap();
-    if !re.is_match(file_name) {
-        return Err(ResponseError::InvalidFileName)
+fn check_file_name_regex(file_name: &String) -> Result<(), ResponseError> {
+    if FILE_RE.is_match(file_name) {
+        Ok(())
+    } else {
+        Err(ResponseError::InvalidFileName)
     }
-    Ok(true)
 }
 
 fn check_id_regex(id: &String) -> Result<(), ResponseError> {
-    let re = Regex::new(r"^[a-zA-Z0-9-]+$").unwrap();
-    if !re.is_match(id) {
-        return Err(ResponseError::InvalidId)
+    if ID_RE.is_match(id) {
+        Ok(()) 
+    } else {
+        Err(ResponseError::InvalidId)
     }
-    Ok(())
 }
+
+static ID_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[A-Za-z0-9-]+$").expect("id regex")
+});
+
+static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$").expect("file regex")
+});
