@@ -6,14 +6,13 @@ use axum::{
 };
 use tokio_util::io::ReaderStream;
 use crate::ResponseError;
-use std::fs::File;
-use std::io::Write;
 use tokio::fs::File as TokioFile;
 use std::path::Path as StdPath;
 use tokio::fs::remove_file;
 use tokio::fs::metadata;
 use regex::Regex;
 use std::sync::LazyLock;
+use tokio::io::AsyncWriteExt;
 
 pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
@@ -64,19 +63,20 @@ pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Re
             .map_err(|err| ResponseError::Upload(err.to_string()))?
         {
             file.write_all(&chunk)
+                .await
                 .map_err(|err| ResponseError::Upload(err.to_string()))?;
         }
     }
     Ok("File uploaded!".to_string().into_response())
 }
 
-pub async fn create_file(path: &String) -> Result<File, ResponseError> {
+pub async fn create_file(path: &String) -> Result<TokioFile, ResponseError> {
     if let Some(parent) = std::path::Path::new(&path).parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|_err| ResponseError::Upload("Failed to create directory".to_string()))?;
     }
 
     // TODO wrong error handling
-    Ok(File::create(&path).map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?)
+    Ok(TokioFile::create(&path).await.map_err(|_err| ResponseError::Upload("Failed to create file".to_string()))?)
 }
 
 pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
