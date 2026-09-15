@@ -13,12 +13,28 @@ use tokio::fs::metadata;
 use regex::Regex;
 use std::sync::LazyLock;
 use tokio::io::AsyncWriteExt;
+use serde::{Serialize, Deserialize};
+use jsonwebtoken::{encode, Header, EncodingKey};
+use jsonwebtoken::get_current_timestamp;
+
+#[derive(Serialize, Deserialize)]
+struct Claims {
+    sub: String,   // user id
+    exp: usize,
+    scope: String,
+}
 
 pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
 }
 
+pub async fn get_download_token() -> Result<Response, ResponseError> {
+    // temporal method
+    Ok(generate_jwt_token("user_id", "upload").into_response())
+}
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+    // Check with jwt token
+
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
 
@@ -42,6 +58,8 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<
 }
 
 pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Result<Response, ResponseError> {
+    // Check with jwt token
+
     check_id_regex(&id)?;
 
     while let Some(mut field) = multipart
@@ -90,6 +108,8 @@ pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Resul
 }
 
 pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+    // TODO add jwt token
+
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
 
@@ -97,6 +117,27 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
     let metadata = metadata(file_path).await.map_err(|_| ResponseError::NotFound)?;
 
     Ok((StatusCode::OK, format!("The file size is {} bytes!", metadata.len())).into_response())
+}
+
+fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseError> {
+    if scope != "upload" && scope != "download" {
+        println!("WAAAA");
+        return Err(ResponseError::InternalError)
+    }
+
+    let claims = Claims {
+    sub: user_id.to_owned(),
+    exp: get_current_timestamp() as usize + 300, // 5 mins alive
+    scope: scope.to_string(),
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret("mi_secreto".as_ref()), // TODO use env variable
+    ).map_err(|_| ResponseError::InternalError)?;
+
+    Ok(token)
 }
 
 fn check_file_name_regex(file_name: &String) -> Result<(), ResponseError> {
