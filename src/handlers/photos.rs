@@ -121,7 +121,6 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
 
 fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseError> {
     if scope != "upload" && scope != "download" {
-        println!("WAAAA");
         return Err(ResponseError::InternalError)
     }
 
