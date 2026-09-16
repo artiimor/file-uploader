@@ -16,6 +16,7 @@ use tokio::io::AsyncWriteExt;
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, Header, EncodingKey};
 use jsonwebtoken::get_current_timestamp;
+use dotenvy::dotenv;
 
 #[derive(Serialize, Deserialize)]
 struct Claims {
@@ -28,9 +29,10 @@ pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
 }
 
-pub async fn get_download_token() -> Result<Response, ResponseError> {
-    // temporal method
-    Ok(generate_jwt_token("user_id", "upload").into_response())
+pub async fn get_download_url(Path(user_id): Path<String>) -> Result<Response, ResponseError> {
+    let token = generate_jwt_token(&user_id, "upload")?;
+
+    Ok(format!("/files/{user_id}?token={token}").into_response())
 }
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
     // Check with jwt token
@@ -120,6 +122,9 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
 }
 
 fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseError> {
+    let token_secret = std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set");
+
     if scope != "upload" && scope != "download" {
         return Err(ResponseError::InternalError)
     }
@@ -133,7 +138,7 @@ fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseErro
     let token = encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret("mi_secreto".as_ref()), // TODO use env variable
+        &EncodingKey::from_secret(token_secret.as_ref()), // TODO use env variable
     ).map_err(|_| ResponseError::InternalError)?;
 
     Ok(token)

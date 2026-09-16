@@ -2,6 +2,7 @@ use axum::{
     response::{ Response, IntoResponse },
     http::StatusCode,
 };
+use dotenvy::dotenv;
 
 mod routes;
 mod handlers;
@@ -28,6 +29,7 @@ impl IntoResponse for ResponseError {
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
    let app = routes::router();
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

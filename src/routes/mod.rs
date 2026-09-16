@@ -9,7 +9,7 @@ use crate::handlers::photos::{
     upload_file,
     delete_file,
     get_metadata,
-    get_download_token,
+    get_download_url,
 };
 
 pub fn router() -> Router{
@@ -18,6 +18,6 @@ pub fn router() -> Router{
         .route("/files/{id}", put(upload_file))
         .route("/files/{id}/{file_name}", get(get_files).delete(delete_file))
         .route("/files/{id}/{file_name}/metadata", get(get_metadata))
-        .route("/test/token", get(get_download_token))
+        .route("/download_url/{user_id}", get(get_download_url))
 }
 
