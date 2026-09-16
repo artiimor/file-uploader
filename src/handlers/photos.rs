@@ -41,10 +41,10 @@ pub async fn get_download_url(Path((user_id, file_name)): Path<(String, String)>
 }
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
                        Query(params): Query<Params>) -> Result<Response, ResponseError> {
-    // TODO Check with jwt token
     let token_secret = std::env::var("JWT_SECRET")
         .expect("JWT_SECRET must be set");
 
+    // TODO check jwt token data
     let token_data = decode::<Claims>(
             params.token,
             &DecodingKey::from_secret(&token_secret.into_bytes()),
