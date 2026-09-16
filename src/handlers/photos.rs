@@ -1,6 +1,6 @@
 use axum::{
     response::{ Response, IntoResponse },
-    extract::{Path, Multipart},
+    extract::{Path, Multipart, Query},
     http::{header, StatusCode},
     body::Body,
 };
@@ -14,7 +14,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 use tokio::io::AsyncWriteExt;
 use serde::{Serialize, Deserialize};
-use jsonwebtoken::{encode, Header, EncodingKey};
+use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
 use jsonwebtoken::get_current_timestamp;
 use dotenvy::dotenv;
 
@@ -25,17 +25,31 @@ struct Claims {
     scope: String,
 }
 
+#[derive(Deserialize)]
+pub struct Params {
+    token: String,
+}
+
 pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
 }
 
-pub async fn get_download_url(Path(user_id): Path<String>) -> Result<Response, ResponseError> {
+pub async fn get_download_url(Path((user_id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
     let token = generate_jwt_token(&user_id, "upload")?;
 
-    Ok(format!("/files/{user_id}?token={token}").into_response())
+    Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
 }
-pub async fn get_files(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
-    // Check with jwt token
+pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
+                       Query(params): Query<Params>) -> Result<Response, ResponseError> {
+    // TODO Check with jwt token
+    let token_secret = std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set");
+
+    let token_data = decode::<Claims>(
+            params.token,
+            &DecodingKey::from_secret(&token_secret.into_bytes()),
+            &Validation::default(),
+        ).map_err(|_| ResponseError::Unauthorized)?;
 
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
@@ -154,14 +168,14 @@ fn check_file_name_regex(file_name: &String) -> Result<(), ResponseError> {
 
 fn check_id_regex(id: &String) -> Result<(), ResponseError> {
     if ID_RE.is_match(id) {
-        Ok(()) 
+        Ok(())
     } else {
         Err(ResponseError::InvalidId)
     }
 }
 
 static ID_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[A-Za-z0-9-]+$").expect("id regex")
+    Regex::new(r"^[A-Za-z0-9_-]+$").expect("id regex")
 });
 
 static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
