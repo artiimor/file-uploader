@@ -51,13 +51,16 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
     let token_secret = std::env::var("JWT_SECRET")
         .expect("JWT_SECRET must be set");
 
+    // TODO extract verification method to function
     let token_data = decode::<Claims>(
             params.token,
             &DecodingKey::from_secret(&token_secret.into_bytes()),
             &Validation::default(),
         ).map_err(|_| ResponseError::Unauthorized)?;
 
-    if token_data.claims.scope != "download" {
+    if token_data.claims.scope != "download" ||
+       token_data.claims.sub != id ||
+       token_data.claims.exp < get_current_timestamp() as usize {
         return Err(ResponseError::InvalidUrl);
     }
 
@@ -95,7 +98,9 @@ pub async fn upload_file(Path(id): Path<String>,
             &Validation::default(),
         ).map_err(|_| ResponseError::Unauthorized)?;
 
-    if token_data.claims.scope != "upload" {
+    if token_data.claims.scope != "upload" ||
+       token_data.claims.sub != id ||
+       token_data.claims.exp < get_current_timestamp() as usize {
         return Err(ResponseError::InvalidUrl);
     }
 
