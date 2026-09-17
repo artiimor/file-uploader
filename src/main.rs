@@ -14,6 +14,7 @@ enum ResponseError {
     InvalidFileName,
     InvalidId,
     Unauthorized,
+    InvalidUrl,
 }
 
 impl IntoResponse for ResponseError {
@@ -25,6 +26,7 @@ impl IntoResponse for ResponseError {
             ResponseError::InvalidId => (StatusCode::NOT_ACCEPTABLE, "Id is not valid".to_string()).into_response(),
             ResponseError::InvalidFileName => (StatusCode::NOT_ACCEPTABLE, "File name is not valid".to_string()).into_response(),
             ResponseError::Unauthorized => (StatusCode::UNAUTHORIZED, "Error, auth is not valid".to_string()).into_response(),
+            ResponseError::InvalidUrl => (StatusCode::UNAUTHORIZED, "URL is not valid".to_string()).into_response(),
         }
     }
 }

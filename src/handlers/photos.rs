@@ -35,7 +35,7 @@ pub async fn health() -> Response {
 }
 
 pub async fn get_download_url(Path((user_id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
-    let token = generate_jwt_token(&user_id, "upload")?;
+    let token = generate_jwt_token(&user_id, "download")?;
 
     Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
 }
@@ -50,6 +50,10 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
             &DecodingKey::from_secret(&token_secret.into_bytes()),
             &Validation::default(),
         ).map_err(|_| ResponseError::Unauthorized)?;
+
+    if token_data.claims.scope != "download" {
+        return Err(ResponseError::InvalidUrl);
+    }
 
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
