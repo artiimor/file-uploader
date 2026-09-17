@@ -16,7 +16,6 @@ use tokio::io::AsyncWriteExt;
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
 use jsonwebtoken::get_current_timestamp;
-use dotenvy::dotenv;
 
 #[derive(Serialize, Deserialize)]
 struct Claims {
@@ -48,21 +47,7 @@ pub async fn get_upload_url(Path(user_id): Path<String>) -> Result<Response, Res
 
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
                        Query(params): Query<Params>) -> Result<Response, ResponseError> {
-    let token_secret = std::env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set");
-
-    // TODO extract verification method to function
-    let token_data = decode::<Claims>(
-            params.token,
-            &DecodingKey::from_secret(&token_secret.into_bytes()),
-            &Validation::default(),
-        ).map_err(|_| ResponseError::Unauthorized)?;
-
-    if token_data.claims.scope != "download" ||
-       token_data.claims.sub != id ||
-       token_data.claims.exp < get_current_timestamp() as usize {
-        return Err(ResponseError::InvalidUrl);
-    }
+    check_jwt_token(&params.token, &id, "download")?;
 
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
@@ -89,20 +74,7 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
 pub async fn upload_file(Path(id): Path<String>,
                          Query(params): Query<Params>,
                          mut multipart: Multipart) -> Result<Response, ResponseError> {
-    let token_secret = std::env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set");
-
-    let token_data = decode::<Claims>(
-            params.token,
-            &DecodingKey::from_secret(&token_secret.into_bytes()),
-            &Validation::default(),
-        ).map_err(|_| ResponseError::Unauthorized)?;
-
-    if token_data.claims.scope != "upload" ||
-       token_data.claims.sub != id ||
-       token_data.claims.exp < get_current_timestamp() as usize {
-        return Err(ResponseError::InvalidUrl);
-    }
+    check_jwt_token(&params.token, &id, "upload")?;
 
     check_id_regex(&id)?;
 
@@ -200,6 +172,24 @@ fn check_id_regex(id: &String) -> Result<(), ResponseError> {
     } else {
         Err(ResponseError::InvalidId)
     }
+}
+
+fn check_jwt_token(token: &String, user_id: &String, scope: &str) -> Result<(), ResponseError> {
+    let token_secret = std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set");
+
+    let token_data = decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(&token_secret.into_bytes()),
+            &Validation::default(),
+        ).map_err(|_| ResponseError::Unauthorized)?;
+
+    if token_data.claims.scope != scope ||
+       token_data.claims.sub != *user_id {
+        return Err(ResponseError::InvalidUrl);
+    }
+
+    Ok(())
 }
 
 static ID_RE: LazyLock<Regex> = LazyLock::new(|| {
