@@ -39,12 +39,18 @@ pub async fn get_download_url(Path((user_id, file_name)): Path<(String, String)>
 
     Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
 }
+
+pub async fn get_upload_url(Path(user_id): Path<String>) -> Result<Response, ResponseError> {
+    let token = generate_jwt_token(&user_id, "upload")?;
+
+    Ok(format!("/files/{user_id}?token={token}").into_response())
+}
+
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
                        Query(params): Query<Params>) -> Result<Response, ResponseError> {
     let token_secret = std::env::var("JWT_SECRET")
         .expect("JWT_SECRET must be set");
 
-    // TODO check jwt token data
     let token_data = decode::<Claims>(
             params.token,
             &DecodingKey::from_secret(&token_secret.into_bytes()),
@@ -58,10 +64,10 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
 
-    let path = format!("files/{id}/{file_name}"); // TODO parse name and id
+    let path = format!("files/{id}/{file_name}");
     let ext = StdPath::new(&file_name)
         .extension()
-        .ok_or(ResponseError::FileExtError)?; // TODO repasar manejo de errores en options y results
+        .ok_or(ResponseError::FileExtError)?;
     let file = TokioFile::open(&path).await.map_err(|_| ResponseError::NotFound)?;
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
@@ -77,21 +83,34 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
     Ok((headers, body).into_response())
 }
 
-pub async fn upload_file(Path(id): Path<String>, mut multipart: Multipart) -> Result<Response, ResponseError> {
-    // Check with jwt token
+pub async fn upload_file(Path(id): Path<String>,
+                         Query(params): Query<Params>,
+                         mut multipart: Multipart) -> Result<Response, ResponseError> {
+    let token_secret = std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set");
+
+    let token_data = decode::<Claims>(
+            params.token,
+            &DecodingKey::from_secret(&token_secret.into_bytes()),
+            &Validation::default(),
+        ).map_err(|_| ResponseError::Unauthorized)?;
+
+    if token_data.claims.scope != "upload" {
+        return Err(ResponseError::InvalidUrl);
+    }
 
     check_id_regex(&id)?;
 
     while let Some(mut field) = multipart
         .next_field()
         .await
-        .map_err(|_| ResponseError::InternalError)? { // TODO repasar esto, en especial el ?
+        .map_err(|_| ResponseError::InternalError)? {
 
         let name = field.file_name().ok_or(ResponseError::InvalidFileName)?;
         let name = name.to_string();
         check_file_name_regex(&name)?;
 
-        let path = format!("files/{id}/{name}"); // TODO parse this to avoid inconsistencies and also handle errors when file already exists
+        let path = format!("files/{id}/{name}");
         let mut file = create_file(&path).await?;
 
         // Write the data
@@ -156,7 +175,7 @@ fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseErro
     let token = encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(token_secret.as_ref()), // TODO use env variable
+        &EncodingKey::from_secret(token_secret.as_ref()),
     ).map_err(|_| ResponseError::InternalError)?;
 
     Ok(token)
