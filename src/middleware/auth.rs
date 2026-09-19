@@ -1,25 +1,21 @@
 
 use axum::{
-    response::{IntoResponse, Response},
-    middleware::{self, Next},
-    extract::{Request, Extension},
+    response::{Response},
+    middleware::{Next},
+    extract::{Request},
     http,
 };
 use crate::ResponseError;
 
 pub async fn auth_bearer_token(req: Request, next: Next) -> Result<Response, ResponseError> {
-    let auth_header = req.headers()
-        .get(http::header::AUTHORIZATION)
-        .and_then(|header| header.to_str().ok());
-
     let bearer = std::env::var("API_KEY")
         .expect("API_KEY must be set");
     let bearer = format!("Bearer {}", bearer);
 
-    if auth_header.unwrap() != bearer {
-        println!("Error en la compararcion");
-        return Err(ResponseError::Unauthorized);
+    if let Some(auth_header) = req.headers().get(http::header::AUTHORIZATION) {
+        if *auth_header == *bearer {
+            return Ok(next.run(req).await);
+       }
     }
-
-    Ok(next.run(req).await)
+    Err(ResponseError::Unauthorized)
 }
