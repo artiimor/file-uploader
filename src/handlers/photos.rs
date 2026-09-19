@@ -4,18 +4,16 @@ use axum::{
     http::{header, StatusCode},
     body::Body,
 };
-use tokio_util::io::ReaderStream;
 use crate::ResponseError;
+use tokio_util::io::ReaderStream;
 use tokio::fs::File as TokioFile;
-use std::path::Path as StdPath;
-use tokio::fs::remove_file;
-use tokio::fs::metadata;
-use regex::Regex;
-use std::sync::LazyLock;
+use tokio::fs::{remove_file, metadata};
 use tokio::io::AsyncWriteExt;
+use std::path::Path as StdPath;
+use std::sync::LazyLock;
+use regex::Regex;
 use serde::{Serialize, Deserialize};
-use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
-use jsonwebtoken::get_current_timestamp;
+use jsonwebtoken::{encode, decode, get_current_timestamp, Header, EncodingKey, DecodingKey, Validation};
 
 #[derive(Serialize, Deserialize)]
 struct Claims {
