@@ -1,5 +1,5 @@
 use axum::{
-    routing::{get, put},
+    routing::{get, put, delete},
     Router,
     middleware,
 };
@@ -18,8 +18,9 @@ pub fn router() -> Router{
     Router::<()>::new()
         .route("/upload_url/{user_id}", get(get_upload_url))
         .route("/download_url/{user_id}/{file_name}", get(get_download_url))
-        .route("/files/{id}/{file_name}", get(get_files).delete(delete_file))
+        .route("/files/{id}/{file_name}", delete(delete_file))
         .route_layer(middleware::from_fn(auth_bearer_token))
+        .route("/files/{id}/{file_name}", get(get_files))
         .route("/health", get(health))
         .route("/files/{id}", put(upload_file))
         .route("/files/{id}/{file_name}/metadata", get(get_metadata))
