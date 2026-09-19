@@ -6,6 +6,7 @@ use dotenvy::dotenv;
 
 mod routes;
 mod handlers;
+mod middleware;
 
 enum ResponseError {
     NotFound,
