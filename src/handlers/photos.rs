@@ -18,7 +18,7 @@ use jsonwebtoken::{encode, decode, get_current_timestamp, Header, EncodingKey, D
 #[derive(Serialize, Deserialize)]
 struct Claims {
     sub: String,   // user id
-    exp: usize,
+    exp: u64,
     scope: String,
 }
 
@@ -116,7 +116,7 @@ pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Resul
 
     let file_path = format!("files/{id}/{file_name}");
     match remove_file(&file_path).await {
-        Ok(_) => Ok((StatusCode::OK, format!("file {file_path} deleted successfully!")).into_response()),
+        Ok(()) => Ok((StatusCode::OK, format!("file {file_path} deleted successfully!")).into_response()),
         Err(_) => Err(ResponseError::NotFound),
     }
 }
@@ -143,7 +143,7 @@ fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseErro
 
     let claims = Claims {
     sub: user_id.to_owned(),
-    exp: get_current_timestamp() as usize + 300, // 5 mins alive
+    exp: get_current_timestamp() + 300, // 5 mins alive
     scope: scope.to_string(),
     };
 
