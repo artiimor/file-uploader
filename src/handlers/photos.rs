@@ -107,7 +107,7 @@ pub async fn create_file(path: &String) -> Result<TokioFile, ResponseError> {
         tokio::fs::create_dir_all(parent).await.map_err(|_| ResponseError::InternalError)?;
     }
 
-    Ok(TokioFile::create(&path).await.map_err(|_| ResponseError::InternalError)?)
+    TokioFile::create(&path).await.map_err(|_| ResponseError::InternalError)
 }
 
 pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
@@ -156,7 +156,7 @@ fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseErro
     Ok(token)
 }
 
-fn check_file_name_regex(file_name: &String) -> Result<(), ResponseError> {
+fn check_file_name_regex(file_name: &str) -> Result<(), ResponseError> {
     if FILE_RE.is_match(file_name) {
         Ok(())
     } else {
@@ -164,7 +164,7 @@ fn check_file_name_regex(file_name: &String) -> Result<(), ResponseError> {
     }
 }
 
-fn check_id_regex(id: &String) -> Result<(), ResponseError> {
+fn check_id_regex(id: &str) -> Result<(), ResponseError> {
     if ID_RE.is_match(id) {
         Ok(())
     } else {
