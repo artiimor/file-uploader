@@ -133,6 +133,7 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
     Ok((StatusCode::OK, format!("The file size is {} bytes!", metadata.len())).into_response())
 }
 
+// TODO test this function
 fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseError> {
     let token_secret = std::env::var("JWT_SECRET")
         .expect("JWT_SECRET must be set");
@@ -156,6 +157,7 @@ fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseErro
     Ok(token)
 }
 
+// TODO test this function
 fn check_file_name_regex(file_name: &str) -> Result<(), ResponseError> {
     if FILE_RE.is_match(file_name) {
         Ok(())
@@ -164,6 +166,7 @@ fn check_file_name_regex(file_name: &str) -> Result<(), ResponseError> {
     }
 }
 
+// TODO test this function
 fn check_id_regex(id: &str) -> Result<(), ResponseError> {
     if ID_RE.is_match(id) {
         Ok(())
@@ -172,6 +175,7 @@ fn check_id_regex(id: &str) -> Result<(), ResponseError> {
     }
 }
 
+// TODO test this function
 fn check_jwt_token(token: &String, user_id: &String, scope: &str) -> Result<(), ResponseError> {
     let token_secret = std::env::var("JWT_SECRET")
         .expect("JWT_SECRET must be set");
@@ -197,3 +201,15 @@ static ID_RE: LazyLock<Regex> = LazyLock::new(|| {
 static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$").expect("file regex")
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_name_regex_is_correct() {
+        assert_eq!(check_file_name_regex("file.txt"), Ok(()));
+        assert_eq!(check_file_name_regex("folder/file.txt"), Err(ResponseError::InvalidFileName));
+        assert_eq!(check_file_name_regex("../.."), Err(ResponseError::InvalidFileName));
+    }
+}
