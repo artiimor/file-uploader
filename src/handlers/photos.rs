@@ -157,7 +157,6 @@ fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseErro
     Ok(token)
 }
 
-// TODO test this function
 fn check_file_name_regex(file_name: &str) -> Result<(), ResponseError> {
     if FILE_RE.is_match(file_name) {
         Ok(())
@@ -166,7 +165,6 @@ fn check_file_name_regex(file_name: &str) -> Result<(), ResponseError> {
     }
 }
 
-// TODO test this function
 fn check_id_regex(id: &str) -> Result<(), ResponseError> {
     if ID_RE.is_match(id) {
         Ok(())
