@@ -212,4 +212,14 @@ mod tests {
         assert_eq!(check_file_name_regex("folder/file.txt"), Err(ResponseError::InvalidFileName));
         assert_eq!(check_file_name_regex("../.."), Err(ResponseError::InvalidFileName));
     }
+
+    #[test]
+    fn id_regex_is_correct() {
+        assert_eq!(check_id_regex("user_id_wololo"), Ok(()));
+        assert_eq!(check_id_regex(",,/file.txt"), Err(ResponseError::InvalidId));
+        assert_eq!(check_id_regex("../.."), Err(ResponseError::InvalidId));
+        assert_eq!(check_id_regex("id.nn"), Err(ResponseError::InvalidId));
+
+    }
+
 }
