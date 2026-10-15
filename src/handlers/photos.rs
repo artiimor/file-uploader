@@ -172,7 +172,6 @@ fn check_id_regex(id: &str) -> Result<(), ResponseError> {
     }
 }
 
-// TODO test this function
 fn check_jwt_token(token: &String, user_id: &String, scope: &str) -> Result<(), ResponseError> {
     let token_secret = std::env::var("JWT_SECRET")
         .expect("jwt_secret must be set");
