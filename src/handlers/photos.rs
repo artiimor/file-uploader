@@ -133,7 +133,6 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
     Ok((StatusCode::OK, format!("The file size is {} bytes!", metadata.len())).into_response())
 }
 
-// TODO test this function
 fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseError> {
     let token_secret = std::env::var("JWT_SECRET")
         .expect("JWT_SECRET must be set");
@@ -176,7 +175,7 @@ fn check_id_regex(id: &str) -> Result<(), ResponseError> {
 // TODO test this function
 fn check_jwt_token(token: &String, user_id: &String, scope: &str) -> Result<(), ResponseError> {
     let token_secret = std::env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set");
+        .expect("jwt_secret must be set");
 
     let token_data = decode::<Claims>(
             token,
@@ -220,4 +219,54 @@ mod tests {
 
     }
 
+    #[test]
+    fn generated_jwt_token_with_upload_scope() {
+        dotenvy::dotenv().ok();
+
+        let user_id = "test_user_id";
+        let scope = "upload";
+
+        let token_secret = std::env::var("JWT_SECRET").unwrap();
+
+        let token = generate_jwt_token(user_id, scope);
+        let token_data = decode::<Claims>(
+            token.unwrap(),
+            &DecodingKey::from_secret(&token_secret.into_bytes()),
+            &Validation::default(),).unwrap();
+
+        assert_eq!(token_data.claims.sub, user_id);
+        assert_eq!(token_data.claims.scope, scope);
+    }
+
+    #[test]
+    fn generated_jwt_token_with_download_scope() {
+        dotenvy::dotenv().ok();
+
+        let user_id = "test_user_id";
+        let scope = "download";
+
+        let token_secret = std::env::var("JWT_SECRET").unwrap();
+
+        let token = generate_jwt_token(user_id, scope);
+        let token_data = decode::<Claims>(
+            token.unwrap(),
+            &DecodingKey::from_secret(&token_secret.into_bytes()),
+            &Validation::default(),).unwrap();
+
+        assert_eq!(token_data.claims.sub, user_id);
+        assert_eq!(token_data.claims.scope, scope);
+    }
+
+    #[test]
+    fn generated_jwt_token_fails_with_random_scope() {
+        dotenvy::dotenv().ok();
+
+        let user_id = "test_user_id";
+        let scope = "asdasd";
+
+        let token_secret = std::env::var("JWT_SECRET").unwrap();
+
+        let token = generate_jwt_token(user_id, scope);
+        assert_eq!(token, Err(ResponseError::InternalError))
+    }
 }
