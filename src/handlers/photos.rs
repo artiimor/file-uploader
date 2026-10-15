@@ -202,6 +202,15 @@ static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    fn setup() {
+        INIT.call_once(|| {
+            dotenvy::dotenv().ok();
+        });
+    }
 
     #[test]
     fn file_name_regex_is_correct() {
@@ -221,7 +230,7 @@ mod tests {
 
     #[test]
     fn generated_jwt_token_with_upload_scope() {
-        dotenvy::dotenv().ok();
+        setup();
 
         let user_id = "test_user_id";
         let scope = "upload";
@@ -240,7 +249,7 @@ mod tests {
 
     #[test]
     fn generated_jwt_token_with_download_scope() {
-        dotenvy::dotenv().ok();
+        setup();
 
         let user_id = "test_user_id";
         let scope = "download";
@@ -259,14 +268,35 @@ mod tests {
 
     #[test]
     fn generated_jwt_token_fails_with_random_scope() {
-        dotenvy::dotenv().ok();
+        setup();
 
         let user_id = "test_user_id";
         let scope = "asdasd";
 
-        let token_secret = std::env::var("JWT_SECRET").unwrap();
-
         let token = generate_jwt_token(user_id, scope);
         assert_eq!(token, Err(ResponseError::InternalError))
+    }
+
+    #[test]
+    fn check_jwt_token_works_when_it_matchs() {
+        setup();
+
+        let user_id = "test_user_id";
+        let scope = "download";
+        let token = generate_jwt_token(user_id, scope).unwrap();
+
+        assert_eq!(check_jwt_token(&token, &user_id.to_string(), scope), Ok(()));
+    }
+
+    #[test]
+    fn check_jwt_token_fails_when_it_does_not_match() {
+        setup();
+
+        let user_id = "test_user_id";
+        let scope = "download";
+        let token = generate_jwt_token(user_id, scope).unwrap();
+        let other_scope = "other_scope";
+
+        assert_eq!(check_jwt_token(&token, &user_id.to_string(), other_scope), Err(ResponseError::InvalidUrl));
     }
 }
