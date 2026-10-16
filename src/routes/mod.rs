@@ -1,5 +1,4 @@
-use axum::{
-    routing::{get, put, delete},
+use axum::{ routing::{get, put, delete},
     Router,
     middleware,
 };
