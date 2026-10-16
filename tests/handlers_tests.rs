@@ -2,6 +2,15 @@ use std::net::SocketAddr;
 use axum_learning::app;
 use reqwest::{Client, StatusCode};
 
+// TODO: test PUT /files/{id} (upload_file) happy path - multipart upload, assert file lands on disk
+// TODO: test GET /upload_url/{user_id} as part of the upload flow above
+// TODO: test DELETE /files/{id}/{file_name} (delete_file) with bearer
+// TODO: test GET /files/{id}/{file_name}/metadata (get_metadata) - currently has no auth at all
+// TODO: test /download_url/{user_id}/{file_name} without Authorization header -> 401
+// TODO: test /files/{id}/{file_name} with missing/wrong-scope/wrong-sub token -> rejected
+// TODO: test /files/{id}/{file_name} for a file that doesn't exist -> 404
+// TODO: test /files/{id}/{file_name} with invalid id/file_name (e.g. path traversal) through the real router
+
 #[tokio::test]
 async fn test_health_check_integration() {
     let port = spawn_serve().await.unwrap().port();

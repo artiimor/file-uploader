@@ -298,4 +298,7 @@ mod tests {
 
         assert_eq!(check_jwt_token(&token, &user_id.to_string(), other_scope), Err(ResponseError::InvalidUrl));
     }
+
+    // TODO: check_jwt_token should fail when token sub doesn't match the requested user_id
+    // TODO: check_jwt_token should map a malformed/corrupt token to Unauthorized
 }
