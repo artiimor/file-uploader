@@ -62,6 +62,22 @@ async fn test_download_with_generated_url() {
 }
 
 #[tokio::test]
+async fn test_generate_download_url_without_bearer() {
+    let user_id = "download_test_user_id";
+    let file_name = "my_file.txt";
+
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client.get(format!("http://localhost:{port}/download_url/{user_id}/{file_name}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn test_upload_with_generated_url() {
     dotenvy::dotenv().ok();
 
@@ -98,6 +114,20 @@ async fn test_upload_with_generated_url() {
 }
 
 #[tokio::test]
+async fn test_generate_upload_url_without_bearer() {
+    let user_id = "upload_test_user_id";
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn test_delete_file_with_bearer() {
     dotenvy::dotenv().ok();
 
@@ -117,6 +147,21 @@ async fn test_delete_file_with_bearer() {
     
     assert_eq!(delete_res.status(), StatusCode::OK);
     assert!(!tokio::fs::try_exists(&path).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_delete_file_without_bearer() {
+    let user_id = "delete_test_user_id";
+    let file_name = "my_file.txt";
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let delete_res = client.delete(format!("http://localhost:{port}/files/{user_id}/{file_name}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(delete_res.status(), StatusCode::UNAUTHORIZED);
 }
 
 async fn spawn_serve() -> Result<SocketAddr, std::io::Error> {
