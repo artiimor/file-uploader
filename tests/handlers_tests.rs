@@ -2,12 +2,6 @@ use std::net::SocketAddr;
 use axum_learning::app;
 use reqwest::{Client, StatusCode};
 
-// TODO: test GET /upload_url/{user_id} as part of the upload flow above
-// TODO: test GET /files/{id}/{file_name}/metadata (get_metadata) - currently has no auth at all
-// TODO: test /files/{id}/{file_name} with missing/wrong-scope/wrong-sub token -> rejected
-// TODO: test /files/{id}/{file_name} for a file that doesn't exist -> 404
-// TODO: test /files/{id}/{file_name} with invalid id/file_name (e.g. path traversal) through the real router
-
 #[tokio::test]
 async fn test_health_check_integration() {
     let port = spawn_serve().await.unwrap().port();
@@ -33,10 +27,7 @@ async fn test_download_with_generated_url() {
 
     let port = spawn_serve().await.unwrap().port();
 
-    // If test fails is nevet deleted
-    // TODO create temp dile with impl of drop that removes it always
-    tokio::fs::create_dir_all(format!("files/{user_id}")).await.unwrap();
-    tokio::fs::write(format!("files/{user_id}/{file_name}"), b"hello").await.unwrap();
+    create_file_and_dir(user_id, file_name).await;
 
     let client = Client::new();
     let res = client.get(format!("http://localhost:{port}/download_url/{user_id}/{file_name}"))
@@ -57,6 +48,108 @@ async fn test_download_with_generated_url() {
     assert_eq!(download_res.status(), StatusCode::OK);
 
     tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_download_unexistent_file() {
+    dotenvy::dotenv().ok();
+
+    let bearer = std::env::var("API_KEY").unwrap();
+    let user_id = "download_test_user_id";
+    let file_name = "unexistent_file.txt";
+
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client.get(format!("http://localhost:{port}/download_url/{user_id}/{file_name}"))
+        .header("Authorization", format!("Bearer {bearer}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.text().await.unwrap();
+    let token = body.split("token=").nth(1).unwrap();
+
+    let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(download_res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_download_with_wrong_token_file() {
+    dotenvy::dotenv().ok();
+
+    let bearer = std::env::var("API_KEY").unwrap();
+    let user_id = "download_test_user_id";
+    let other_file_name = "error.txt";
+    let file_name = "file.txt";
+
+    create_file_and_dir(user_id, file_name).await;
+    create_file_and_dir(user_id, other_file_name).await;
+
+
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client.get(format!("http://localhost:{port}/download_url/{user_id}/{other_file_name}"))
+        .header("Authorization", format!("Bearer {bearer}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.text().await.unwrap();
+    let token = body.split("token=").nth(1).unwrap();
+
+    let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(download_res.status(), StatusCode::NOT_FOUND);
+
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_download_with_wrong_token_user() {
+    dotenvy::dotenv().ok();
+
+    let bearer = std::env::var("API_KEY").unwrap();
+    let user_id = "download_test_user_id";
+    let other_user_id = "other_user";
+    let file_name = "file.txt";
+
+    create_file_and_dir(user_id, file_name).await;
+    create_file_and_dir(other_user_id, file_name).await;
+
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client.get(format!("http://localhost:{port}/download_url/{other_user_id}/{file_name}"))
+        .header("Authorization", format!("Bearer {bearer}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.text().await.unwrap();
+    let token = body.split("token=").nth(1).unwrap();
+
+    let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(download_res.status(), StatusCode::UNAUTHORIZED);
+
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
+    tokio::fs::remove_file(format!("files/{other_user_id}/{file_name}")).await.unwrap();
 }
 
 #[tokio::test]
@@ -142,7 +235,7 @@ async fn test_delete_file_with_bearer() {
         .send()
         .await
         .unwrap();
-    
+
     assert_eq!(delete_res.status(), StatusCode::OK);
     assert!(!tokio::fs::try_exists(&path).await.unwrap());
 }
