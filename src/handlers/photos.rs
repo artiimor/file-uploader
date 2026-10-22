@@ -37,6 +37,7 @@ pub async fn get_download_url(Path((user_id, file_name)): Path<(String, String)>
     Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
 }
 
+// TODO get the file name introduced. Must check this
 pub async fn get_upload_url(Path(user_id): Path<String>) -> Result<Response, ResponseError> {
     let token = generate_jwt_token(&user_id, "upload")?;
 
@@ -59,10 +60,10 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
     let body = Body::from_stream(stream);
 
     let headers = [
-        (header::CONTENT_TYPE, format!("application/{:?}", ext.to_str())), // TODO fix for all file type
+        (header::CONTENT_TYPE, format!("image/{}", ext.to_str().unwrap_or("octet-stream"))),
         (
             header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{file_name}\""),
+            format!("inline; filename=\"{file_name}\""),
         ),
     ];
 
