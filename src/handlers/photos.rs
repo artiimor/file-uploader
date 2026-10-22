@@ -20,6 +20,7 @@ struct Claims {
     sub: String,   // user id
     exp: u64,
     scope: String,
+    file_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -32,21 +33,21 @@ pub async fn health() -> Response {
 }
 
 pub async fn get_download_url(Path((user_id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
-    let token = generate_jwt_token(&user_id, "download")?;
+    let token = generate_jwt_token(&user_id, "download", Some(file_name.clone()))?;
 
     Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
 }
 
 // TODO get the file name introduced. Must check this
 pub async fn get_upload_url(Path(user_id): Path<String>) -> Result<Response, ResponseError> {
-    let token = generate_jwt_token(&user_id, "upload")?;
+    let token = generate_jwt_token(&user_id, "upload", None)?;
 
     Ok(format!("/files/{user_id}?token={token}").into_response())
 }
 
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
                        Query(params): Query<Params>) -> Result<Response, ResponseError> {
-    check_jwt_token(&params.token, &id, "download")?;
+    check_jwt_token(&params.token, &id, "download", Some(file_name.clone()))?;
 
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
@@ -73,7 +74,7 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
 pub async fn upload_file(Path(id): Path<String>,
                          Query(params): Query<Params>,
                          mut multipart: Multipart) -> Result<Response, ResponseError> {
-    check_jwt_token(&params.token, &id, "upload")?;
+    check_jwt_token(&params.token, &id, "upload", None)?;
 
     check_id_regex(&id)?;
 
@@ -134,7 +135,7 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
     Ok((StatusCode::OK, format!("The file size is {} bytes!", metadata.len())).into_response())
 }
 
-fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseError> {
+fn generate_jwt_token(user_id: &str, scope: &str, file_name: Option<String>) -> Result<String, ResponseError> {
     let token_secret = std::env::var("JWT_SECRET")
         .expect("JWT_SECRET must be set");
 
@@ -146,6 +147,7 @@ fn generate_jwt_token(user_id: &str, scope: &str) -> Result<String, ResponseErro
     sub: user_id.to_owned(),
     exp: get_current_timestamp() + 300, // 5 mins alive
     scope: scope.to_string(),
+    file_name: file_name,
     };
 
     let token = encode(
@@ -173,7 +175,7 @@ fn check_id_regex(id: &str) -> Result<(), ResponseError> {
     }
 }
 
-fn check_jwt_token(token: &String, user_id: &String, scope: &str) -> Result<(), ResponseError> {
+fn check_jwt_token(token: &String, user_id: &String, scope: &str, file_name: Option<String>) -> Result<(), ResponseError> {
     let token_secret = std::env::var("JWT_SECRET")
         .expect("jwt_secret must be set");
 
@@ -184,7 +186,8 @@ fn check_jwt_token(token: &String, user_id: &String, scope: &str) -> Result<(), 
         ).map_err(|_| ResponseError::Unauthorized)?;
 
     if token_data.claims.scope != scope ||
-       token_data.claims.sub != *user_id {
+       token_data.claims.sub != *user_id ||
+       token_data.claims.file_name.unwrap_or_default() != file_name.unwrap_or_default() {
         return Err(ResponseError::InvalidUrl);
     }
 
@@ -237,7 +240,7 @@ mod tests {
 
         let token_secret = std::env::var("JWT_SECRET").unwrap();
 
-        let token = generate_jwt_token(user_id, scope);
+        let token = generate_jwt_token(user_id, scope, None);
         let token_data = decode::<Claims>(
             token.unwrap(),
             &DecodingKey::from_secret(&token_secret.into_bytes()),
@@ -253,10 +256,11 @@ mod tests {
 
         let user_id = "test_user_id";
         let scope = "download";
+        let file_name = "file_name";
 
         let token_secret = std::env::var("JWT_SECRET").unwrap();
 
-        let token = generate_jwt_token(user_id, scope);
+        let token = generate_jwt_token(user_id, scope, Some(file_name.to_string()));
         let token_data = decode::<Claims>(
             token.unwrap(),
             &DecodingKey::from_secret(&token_secret.into_bytes()),
@@ -264,6 +268,7 @@ mod tests {
 
         assert_eq!(token_data.claims.sub, user_id);
         assert_eq!(token_data.claims.scope, scope);
+        assert_eq!(token_data.claims.file_name, Some(file_name.to_string()));
     }
 
     #[test]
@@ -273,7 +278,7 @@ mod tests {
         let user_id = "test_user_id";
         let scope = "asdasd";
 
-        let token = generate_jwt_token(user_id, scope);
+        let token = generate_jwt_token(user_id, scope, None);
         assert_eq!(token, Err(ResponseError::InternalError))
     }
 
@@ -283,9 +288,9 @@ mod tests {
 
         let user_id = "test_user_id";
         let scope = "download";
-        let token = generate_jwt_token(user_id, scope).unwrap();
+        let token = generate_jwt_token(user_id, scope, None).unwrap();
 
-        assert_eq!(check_jwt_token(&token, &user_id.to_string(), scope), Ok(()));
+        assert_eq!(check_jwt_token(&token, &user_id.to_string(), scope, None), Ok(()));
     }
 
     #[test]
@@ -293,13 +298,33 @@ mod tests {
         setup();
 
         let user_id = "test_user_id";
-        let scope = "download";
-        let token = generate_jwt_token(user_id, scope).unwrap();
+        let scope = "upload";
+        let token = generate_jwt_token(user_id, scope, None).unwrap();
         let other_scope = "other_scope";
 
-        assert_eq!(check_jwt_token(&token, &user_id.to_string(), other_scope), Err(ResponseError::InvalidUrl));
+        assert_eq!(check_jwt_token(&token, &user_id.to_string(), other_scope, None), Err(ResponseError::InvalidUrl));
     }
 
-    // TODO: check_jwt_token should fail when token sub doesn't match the requested user_id
-    // TODO: check_jwt_token should map a malformed/corrupt token to Unauthorized
+    #[test]
+    fn check_jwt_token_fails_when_sub_does_not_match() {
+        setup();
+
+        let user_id = "test_user_id";
+        let other_user_id = "other_user_id";
+        let scope = "download";
+        let token = generate_jwt_token(user_id, scope, None).unwrap();
+
+        assert_eq!(check_jwt_token(&token, &other_user_id.to_string(), scope, None), Err(ResponseError::InvalidUrl));
+    }
+
+    #[test]
+    fn check_jwt_token_fails_with_malformed_token() {
+        setup();
+
+        let user_id = "test_user_id";
+        let scope = "download";
+        let token = "not.a.valid.jwt".to_string();
+
+        assert_eq!(check_jwt_token(&token, &user_id.to_string(), scope, None), Err(ResponseError::Unauthorized));
+    }
 }

@@ -84,13 +84,12 @@ async fn test_download_with_wrong_token_file() {
     dotenvy::dotenv().ok();
 
     let bearer = std::env::var("API_KEY").unwrap();
-    let user_id = "download_test_user_id";
+    let user_id = "download_test_user_id2";
     let other_file_name = "error.txt";
     let file_name = "file.txt";
 
     create_file_and_dir(user_id, file_name).await;
     create_file_and_dir(user_id, other_file_name).await;
-
 
     let port = spawn_serve().await.unwrap().port();
 
@@ -110,10 +109,10 @@ async fn test_download_with_wrong_token_file() {
         .await
         .unwrap();
 
-    assert_eq!(download_res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(download_res.status(), StatusCode::UNAUTHORIZED);
 
     tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
-    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
+    tokio::fs::remove_file(format!("files/{user_id}/{other_file_name}")).await.unwrap();
 }
 
 #[tokio::test]
@@ -253,6 +252,28 @@ async fn test_delete_file_without_bearer() {
         .unwrap();
 
     assert_eq!(delete_res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_get_metadata() {
+    let user_id = "metadata_test_user_id";
+    let file_name = "my_file.txt";
+
+    create_file_and_dir(user_id, file_name).await;
+
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}/metadata"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.text().await.unwrap();
+    assert_eq!(body, "The file size is 5 bytes!");
+
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
 }
 
 async fn spawn_serve() -> Result<SocketAddr, std::io::Error> {
