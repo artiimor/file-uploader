@@ -88,6 +88,7 @@ dependencies = [
  "serde",
  "tokio",
  "tokio-util",
+ "tower-http",
 ]
 
 [[package]]
