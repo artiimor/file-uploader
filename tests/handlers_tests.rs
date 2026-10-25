@@ -38,9 +38,8 @@ async fn test_download_with_generated_url() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body = res.text().await.unwrap();
-    let token = body.split("token=").nth(1).unwrap();
 
-    let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+    let download_res = client.get(format!("http://localhost:{port}{body}"))
         .send()
         .await
         .unwrap();
@@ -178,7 +177,7 @@ async fn test_upload_with_generated_url() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}"))
+    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}/{file_name}"))
         .header("Authorization", format!("Bearer {bearer}"))
         .send()
         .await
@@ -186,12 +185,11 @@ async fn test_upload_with_generated_url() {
 
     assert_eq!(res.status(), StatusCode::OK);
     let body = res.text().await.unwrap();
-    let token = body.split("token=").nth(1).unwrap();
 
     let form = reqwest::multipart::Form::new()
         .part("file", reqwest::multipart::Part::bytes(b"hello world".to_vec())
         .file_name(file_name));
-    let upload_res = client.put(format!("http://localhost:{port}/files/{user_id}?token={token}"))
+    let upload_res = client.put(format!("http://localhost:{port}{body}"))
         .multipart(form)
         .send()
         .await
@@ -206,10 +204,11 @@ async fn test_upload_with_generated_url() {
 #[tokio::test]
 async fn test_generate_upload_url_without_bearer() {
     let user_id = "upload_test_user_id";
+    let file_name = "my_file.txt";
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}"))
+    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}/{file_name}"))
         .send()
         .await
         .unwrap();

@@ -1,6 +1,6 @@
 use axum::{
     response::{ Response, IntoResponse },
-    extract::{Path, Multipart, Query},
+    extract::{Path, Multipart, Query, Request, FromRequest},
     http::{header, StatusCode},
     body::Body,
 };
@@ -38,11 +38,10 @@ pub async fn get_download_url(Path((user_id, file_name)): Path<(String, String)>
     Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
 }
 
-// TODO get the file name introduced. Must check this
-pub async fn get_upload_url(Path(user_id): Path<String>) -> Result<Response, ResponseError> {
-    let token = generate_jwt_token(&user_id, "upload", None)?;
+pub async fn get_upload_url(Path((user_id, file_name)): Path<(String, String)>,) -> Result<Response, ResponseError> {
+    let token = generate_jwt_token(&user_id, "upload", Some(file_name.clone()))?;
 
-    Ok(format!("/files/{user_id}?token={token}").into_response())
+    Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
 }
 
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
@@ -71,36 +70,28 @@ pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
     Ok((headers, body).into_response())
 }
 
-pub async fn upload_file(Path(id): Path<String>,
+pub async fn upload_file(Path((id, file_name)): Path<(String, String)>,
                          Query(params): Query<Params>,
-                         mut multipart: Multipart) -> Result<Response, ResponseError> {
-    check_jwt_token(&params.token, &id, "upload", None)?;
-
+                         request: Request) -> Result<Response, ResponseError> {
+    check_jwt_token(&params.token, &id, "upload", Some(file_name.clone()))?;
     check_id_regex(&id)?;
 
-    while let Some(mut field) = multipart
-        .next_field()
-        .await
-        .map_err(|_| ResponseError::InternalError)? {
+    let is_multipart = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("multipart/form-data")) // may god help us with string comparations
+        .unwrap_or(false);
 
-        let name = field.file_name().ok_or(ResponseError::InvalidFileName)?;
-        let name = name.to_string();
-        check_file_name_regex(&name)?;
-
-        let path = format!("files/{id}/{name}");
-        let mut file = create_file(&path).await?;
-
-        // Write the data
-        while let Some(chunk) = field
-            .chunk()
+    if is_multipart {
+        let mut multipart = Multipart::from_request(request, &())
             .await
-            .map_err(|_| ResponseError::InternalError)?
-        {
-            file.write_all(&chunk)
-                .await
-                .map_err(|_| ResponseError::InternalError)?;
-        }
+            .map_err(|_| ResponseError::InternalError)?;
+        handle_multipart_upload(&id, &file_name, &mut multipart).await?;
+    } else {
+        println!("Lo implementaremos en el futuro!");
     }
+
     Ok("File uploaded!".to_string().into_response())
 }
 
@@ -191,6 +182,31 @@ fn check_jwt_token(token: &String, user_id: &String, scope: &str, file_name: Opt
         return Err(ResponseError::InvalidUrl);
     }
 
+    Ok(())
+}
+
+async fn handle_multipart_upload(id: &String, file_name: &String, multipart: &mut Multipart) -> Result<(), ResponseError> {
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| ResponseError::InternalError)? {
+
+        check_file_name_regex(&file_name)?;
+
+        let path = format!("files/{id}/{file_name}");
+        let mut file = create_file(&path).await?;
+
+        // Write the data
+        while let Some(chunk) = field
+            .chunk()
+            .await
+            .map_err(|_| ResponseError::InternalError)?
+        {
+            file.write_all(&chunk)
+                .await
+                .map_err(|_| ResponseError::InternalError)?;
+        }
+    }
     Ok(())
 }
 
