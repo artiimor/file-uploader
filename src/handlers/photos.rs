@@ -1,8 +1,8 @@
 use axum::{
     response::{ Response, IntoResponse },
-    extract::{Path, Multipart, Query, Request, FromRequest},
-    http::{header, StatusCode},
-    body::Body,
+    extract::{ Path, Multipart, Query, Request, FromRequest },
+    http::{ header, StatusCode },
+    body::{ to_bytes, Body },
 };
 use crate::ResponseError;
 use tokio_util::io::ReaderStream;
@@ -89,7 +89,7 @@ pub async fn upload_file(Path((id, file_name)): Path<(String, String)>,
             .map_err(|_| ResponseError::InternalError)?;
         handle_multipart_upload(&id, &file_name, &mut multipart).await?;
     } else {
-        println!("Lo implementaremos en el futuro!");
+        handle_direct_upload(&id, &file_name, request).await?;
     }
 
     Ok("File uploaded!".to_string().into_response())
@@ -207,6 +207,23 @@ async fn handle_multipart_upload(id: &String, file_name: &String, multipart: &mu
                 .map_err(|_| ResponseError::InternalError)?;
         }
     }
+    Ok(())
+}
+
+async fn handle_direct_upload(id: &String, file_name: &String, request: Request) -> Result<(), ResponseError> {
+    check_file_name_regex(file_name)?;
+    let path = format!("files/{id}/{file_name}");
+
+    let mut file = create_file(&path).await?;
+
+    let buf = to_bytes(
+        request.into_body(), usize::MAX
+    ).await.map_err(|_| ResponseError::InternalError)?;
+
+    file.write_all(&buf)
+        .await
+        .map_err(|_| ResponseError::InternalError)?;
+
     Ok(())
 }
 

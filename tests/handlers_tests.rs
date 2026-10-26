@@ -202,6 +202,38 @@ async fn test_upload_with_generated_url() {
 }
 
 #[tokio::test]
+async fn test_direct_upload_with_generated_url() {
+    dotenvy::dotenv().ok();
+
+    let bearer = std::env::var("API_KEY").unwrap();
+    let user_id = "direct_upload_test_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{}/{}", user_id, file_name);
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}/{file_name}"))
+        .header("Authorization", format!("Bearer {bearer}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.text().await.unwrap();
+
+    let upload_res = client.put(format!("http://localhost:{port}{body}"))
+        .body(b"hello world".to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(upload_res.status(), StatusCode::OK);
+    assert!(tokio::fs::try_exists(&path).await.unwrap());
+    assert_eq!(tokio::fs::read(&path).await.unwrap(), b"hello world");
+    tokio::fs::remove_file(&path).await.unwrap();
+}
+
+#[tokio::test]
 async fn test_generate_upload_url_without_bearer() {
     let user_id = "upload_test_user_id";
     let file_name = "my_file.txt";
