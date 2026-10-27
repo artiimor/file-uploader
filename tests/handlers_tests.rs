@@ -196,8 +196,8 @@ async fn test_upload_with_generated_url() {
         .unwrap();
 
     assert_eq!(upload_res.status(), StatusCode::OK);
-    println!("{}", tokio::fs::try_exists(&path).await.unwrap());
     assert!(tokio::fs::try_exists(&path).await.unwrap());
+    assert_eq!(tokio::fs::read(&path).await.unwrap(), b"hello world");
     tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
 }
 

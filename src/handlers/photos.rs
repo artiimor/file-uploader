@@ -2,7 +2,7 @@ use axum::{
     response::{ Response, IntoResponse },
     extract::{ Path, Multipart, Query, Request, FromRequest },
     http::{ header, StatusCode },
-    body::{ to_bytes, Body },
+    body::{ Body },
 };
 use crate::ResponseError;
 use tokio_util::io::ReaderStream;
@@ -14,6 +14,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, get_current_timestamp, Header, EncodingKey, DecodingKey, Validation};
+use futures_util::StreamExt;
 
 #[derive(Serialize, Deserialize)]
 struct Claims {
@@ -216,13 +217,12 @@ async fn handle_direct_upload(id: &String, file_name: &String, request: Request)
 
     let mut file = create_file(&path).await?;
 
-    let buf = to_bytes(
-        request.into_body(), usize::MAX
-    ).await.map_err(|_| ResponseError::InternalError)?;
-
-    file.write_all(&buf)
-        .await
-        .map_err(|_| ResponseError::InternalError)?;
+    let mut stream = request.into_body().into_data_stream();
+    // TODO if it fails we must delete the file
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| ResponseError::InternalError)?;
+        file.write_all(&chunk).await.map_err(|_| ResponseError::InternalError)?;
+    }
 
     Ok(())
 }
