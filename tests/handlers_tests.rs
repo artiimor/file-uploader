@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use axum_learning::app;
+use file_uploader::app;
 use reqwest::{Client, StatusCode};
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 use dotenvy::dotenv;
 
-use axum_learning::app;
+use file_uploader::app;
 
 #[tokio::main]
 async fn main() {
