@@ -20,58 +20,16 @@ async fn test_health_check_integration() {
 }
 
 #[tokio::test]
-async fn test_download_with_generated_url() {
-    dotenvy::dotenv().ok();
-
-    let bearer = std::env::var("API_KEY").unwrap();
-    let user_id = "download_test_user_id";
-    let file_name = "my_file.txt";
-
-    let port = spawn_serve().await.unwrap().port();
-
-    create_file_and_dir(user_id, file_name).await;
-
-    let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/download_url/{user_id}/{file_name}"))
-        .header("Authorization", format!("Bearer {bearer}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = res.text().await.unwrap();
-
-    let download_res = client.get(format!("http://localhost:{port}{body}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(download_res.status(), StatusCode::OK);
-
-    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
-}
-
-#[tokio::test]
 async fn test_download_unexistent_file() {
     dotenvy::dotenv().ok();
 
-    let bearer = std::env::var("API_KEY").unwrap();
     let user_id = "download_test_user_id";
     let file_name = "unexistent_file.txt";
+    let token = generate_jwt_token(user_id, "download", Some(file_name.to_string()));
 
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/download_url/{user_id}/{file_name}"))
-        .header("Authorization", format!("Bearer {bearer}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = res.text().await.unwrap();
-    let token = body.split("token=").nth(1).unwrap();
-
     let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
         .send()
         .await
@@ -84,10 +42,10 @@ async fn test_download_unexistent_file() {
 async fn test_download_with_wrong_token_file() {
     dotenvy::dotenv().ok();
 
-    let bearer = std::env::var("API_KEY").unwrap();
     let user_id = "download_test_user_id2";
     let other_file_name = "error.txt";
     let file_name = "file.txt";
+    let token = generate_jwt_token(user_id, "download", Some(other_file_name.to_string()));
 
     create_file_and_dir(user_id, file_name).await;
     create_file_and_dir(user_id, other_file_name).await;
@@ -95,16 +53,6 @@ async fn test_download_with_wrong_token_file() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/download_url/{user_id}/{other_file_name}"))
-        .header("Authorization", format!("Bearer {bearer}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = res.text().await.unwrap();
-    let token = body.split("token=").nth(1).unwrap();
-
     let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
         .send()
         .await
@@ -120,10 +68,10 @@ async fn test_download_with_wrong_token_file() {
 async fn test_download_with_wrong_token_user() {
     dotenvy::dotenv().ok();
 
-    let bearer = std::env::var("API_KEY").unwrap();
     let user_id = "download_test_user_id";
     let other_user_id = "other_user";
     let file_name = "file.txt";
+    let token = generate_jwt_token(other_user_id, "download", Some(file_name.to_string()));
 
     create_file_and_dir(user_id, file_name).await;
     create_file_and_dir(other_user_id, file_name).await;
@@ -131,16 +79,6 @@ async fn test_download_with_wrong_token_user() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/download_url/{other_user_id}/{file_name}"))
-        .header("Authorization", format!("Bearer {bearer}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = res.text().await.unwrap();
-    let token = body.split("token=").nth(1).unwrap();
-
     let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
         .send()
         .await
@@ -153,45 +91,20 @@ async fn test_download_with_wrong_token_user() {
 }
 
 #[tokio::test]
-async fn test_generate_download_url_without_bearer() {
-    let user_id = "download_test_user_id";
-    let file_name = "my_file.txt";
-
-    let port = spawn_serve().await.unwrap().port();
-
-    let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/download_url/{user_id}/{file_name}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
 async fn test_upload_with_generated_url() {
     dotenvy::dotenv().ok();
 
-    let bearer = std::env::var("API_KEY").unwrap();
     let user_id = "upload_test_user_id";
     let file_name = "my_file.txt";
-    let path = format!("files/{}/{}", user_id, file_name);
+    let path = format!("files/{user_id}/{file_name}");
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}/{file_name}"))
-        .header("Authorization", format!("Bearer {bearer}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = res.text().await.unwrap();
-
     let form = reqwest::multipart::Form::new()
         .part("file", reqwest::multipart::Part::bytes(b"hello world".to_vec())
         .file_name(file_name));
-    let upload_res = client.put(format!("http://localhost:{port}{body}"))
+    let upload_res = client.put(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
         .multipart(form)
         .send()
         .await
@@ -207,23 +120,14 @@ async fn test_upload_with_generated_url() {
 async fn test_direct_upload_with_generated_url() {
     dotenvy::dotenv().ok();
 
-    let bearer = std::env::var("API_KEY").unwrap();
     let user_id = "direct_upload_test_user_id";
     let file_name = "my_file.txt";
-    let path = format!("files/{}/{}", user_id, file_name);
+    let path = format!("files/{user_id}/{file_name}");
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}/{file_name}"))
-        .header("Authorization", format!("Bearer {bearer}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = res.text().await.unwrap();
-
-    let upload_res = client.put(format!("http://localhost:{port}{body}"))
+    let upload_res = client.put(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
         .body(b"hello world".to_vec())
         .send()
         .await
@@ -236,32 +140,16 @@ async fn test_direct_upload_with_generated_url() {
 }
 
 #[tokio::test]
-async fn test_generate_upload_url_without_bearer() {
-    let user_id = "upload_test_user_id";
-    let file_name = "my_file.txt";
-    let port = spawn_serve().await.unwrap().port();
-
-    let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/upload_url/{user_id}/{file_name}"))
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn test_delete_file_with_bearer() {
+async fn test_delete_file() {
     dotenvy::dotenv().ok();
 
-    let bearer = std::env::var("API_KEY").unwrap();
     let user_id = "delete_test_user_id";
     let file_name = "my_file.txt";
-    let path = format!("files/{}/{}", user_id, file_name);
+    let path = format!("files/{user_id}/{file_name}");
     let port = spawn_serve().await.unwrap().port();
-    let token = generate_jwt_token(&user_id, "delete", Some(file_name.to_string()));
+    let token = generate_jwt_token(user_id, "delete", Some(file_name.to_string()));
 
-    create_file_and_dir(&user_id, &file_name).await;
+    create_file_and_dir(user_id, file_name).await;
 
     let client = Client::new();
     let delete_res = client.delete(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
@@ -357,18 +245,16 @@ fn generate_jwt_token(user_id: &str, scope: &str, file_name: Option<String>) -> 
         .expect("JWT_SECRET must be set");
 
     let claims = Claims {
-    sub: user_id.to_owned(),
-    exp: get_current_timestamp() + 300, // 5 mins alive
-    scope: scope.to_string(),
-    file_name: file_name,
+        sub: user_id.to_owned(),
+        exp: get_current_timestamp() + 300, // 5 mins alive
+        scope: scope.to_string(),
+        file_name,
     };
 
-    let token = encode(
+    encode(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(token_secret.as_ref()),
-    ).unwrap();
-
-    token
+    ).unwrap()
 }
 

@@ -1,18 +1,14 @@
 use axum::{ routing::{get, put, delete},
     Router,
-    middleware,
     extract::DefaultBodyLimit,
 };
 use tower_http::cors::CorsLayer;
-use crate::middleware::auth::auth_bearer_token;
 use crate::handlers::photos::{
     health,
     get_files,
     upload_file,
     delete_file,
     get_metadata,
-    get_download_url,
-    get_upload_url,
 };
 
 pub fn router() -> Router{
