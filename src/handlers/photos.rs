@@ -33,18 +33,6 @@ pub async fn health() -> Response {
     "igbbmn".to_string().into_response()
 }
 
-pub async fn get_download_url(Path((user_id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
-    let token = generate_jwt_token(&user_id, "download", Some(file_name.clone()))?;
-
-    Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
-}
-
-pub async fn get_upload_url(Path((user_id, file_name)): Path<(String, String)>,) -> Result<Response, ResponseError> {
-    let token = generate_jwt_token(&user_id, "upload", Some(file_name.clone()))?;
-
-    Ok(format!("/files/{user_id}/{file_name}?token={token}").into_response())
-}
-
 pub async fn get_files(Path((id, file_name)): Path<(String, String)>,
                        Query(params): Query<Params>) -> Result<Response, ResponseError> {
     check_jwt_token(&params.token, &id, "download", Some(file_name.clone()))?;

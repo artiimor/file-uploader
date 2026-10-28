@@ -17,9 +17,6 @@ use crate::handlers::photos::{
 
 pub fn router() -> Router{
     Router::<()>::new()
-        .route("/upload_url/{user_id}/{file_name}", get(get_upload_url))
-        .route("/download_url/{user_id}/{file_name}", get(get_download_url))
-        .route_layer(middleware::from_fn(auth_bearer_token))
         .route("/files/{id}/{file_name}", delete(delete_file))
         .route("/files/{id}/{file_name}", get(get_files))
         .route("/health", get(health))
