@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
 use file_uploader::app;
 use reqwest::{Client, StatusCode};
+use serde::{Serialize, Deserialize};
+use jsonwebtoken::{encode, get_current_timestamp, Header, EncodingKey};
 
 #[tokio::test]
 async fn test_health_check_integration() {
@@ -257,11 +259,12 @@ async fn test_delete_file_with_bearer() {
     let file_name = "my_file.txt";
     let path = format!("files/{}/{}", user_id, file_name);
     let port = spawn_serve().await.unwrap().port();
+    let token = generate_jwt_token(&user_id, "delete", Some(file_name.to_string()));
+
     create_file_and_dir(&user_id, &file_name).await;
 
     let client = Client::new();
-    let delete_res = client.delete(format!("http://localhost:{port}/files/{user_id}/{file_name}"))
-        .header("Authorization", format!("Bearer {bearer}"))
+    let delete_res = client.delete(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
         .send()
         .await
         .unwrap();
@@ -271,18 +274,34 @@ async fn test_delete_file_with_bearer() {
 }
 
 #[tokio::test]
-async fn test_delete_file_without_bearer() {
-    let user_id = "delete_test_user_id";
+async fn test_delete_file_with_wrong_token() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "delete_wrong_token_user_id";
     let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
     let port = spawn_serve().await.unwrap().port();
 
-    let client = Client::new();
-    let delete_res = client.delete(format!("http://localhost:{port}/files/{user_id}/{file_name}"))
-        .send()
-        .await
-        .unwrap();
+    create_file_and_dir(user_id, file_name).await;
 
-    assert_eq!(delete_res.status(), StatusCode::UNAUTHORIZED);
+    let bad_tokens = [
+        generate_jwt_token(user_id, "upload", Some(file_name.to_string())),
+        generate_jwt_token(user_id, "delete", Some("other_file.txt".to_string())),
+        generate_jwt_token("other_user", "delete", Some(file_name.to_string())),
+        "not.a.valid.jwt".to_string(),
+    ];
+
+    let client = Client::new();
+    for token in bad_tokens {
+        let delete_res = client.delete(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(delete_res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    assert!(tokio::fs::try_exists(&path).await.unwrap());
 }
 
 #[tokio::test]
@@ -324,3 +343,32 @@ async fn create_file_and_dir(user_id: &str, file_name: &str) {
     tokio::fs::create_dir_all(format!("files/{user_id}")).await.unwrap();
     tokio::fs::write(format!("files/{user_id}/{file_name}"), b"hello").await.unwrap();
 }
+
+#[derive(Serialize, Deserialize)]
+struct Claims {
+    sub: String,   // user id
+    exp: u64,
+    scope: String,
+    file_name: Option<String>,
+}
+
+fn generate_jwt_token(user_id: &str, scope: &str, file_name: Option<String>) -> String {
+    let token_secret = std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set");
+
+    let claims = Claims {
+    sub: user_id.to_owned(),
+    exp: get_current_timestamp() + 300, // 5 mins alive
+    scope: scope.to_string(),
+    file_name: file_name,
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(token_secret.as_ref()),
+    ).unwrap();
+
+    token
+}
+

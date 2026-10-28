@@ -104,7 +104,9 @@ pub async fn create_file(path: &String) -> Result<TokioFile, ResponseError> {
     TokioFile::create(&path).await.map_err(|_| ResponseError::InternalError)
 }
 
-pub async fn delete_file(Path((id, file_name)): Path<(String, String)>) -> Result<Response, ResponseError> {
+pub async fn delete_file(Path((id, file_name)): Path<(String, String)>,
+                         Query(params): Query<Params>) -> Result<Response, ResponseError> {
+    check_jwt_token(&params.token, &id, "delete", Some(file_name.clone()))?;
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
 
