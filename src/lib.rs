@@ -5,7 +5,6 @@ use axum::{
 
 mod routes;
 mod handlers;
-mod middleware;
 
 #[derive(PartialEq)]
 #[derive(Debug)]
