@@ -227,8 +227,11 @@ async fn test_delete_file_with_wrong_token() {
 
 #[tokio::test]
 async fn test_get_metadata() {
+    dotenvy::dotenv().ok();
+
     let user_id = "metadata_test_user_id";
     let file_name = "my_file.txt";
+    let token = generate_jwt_token(user_id, "metadata", Some(file_name.to_string()));
 
     create_file_and_dir(user_id, file_name).await;
 
@@ -237,7 +240,7 @@ async fn test_get_metadata() {
     let client = Client::new();
     let res = client
         .get(format!(
-            "http://localhost:{port}/files/{user_id}/{file_name}/metadata"
+            "http://localhost:{port}/files/{user_id}/{file_name}/metadata?token={token}"
         ))
         .send()
         .await
@@ -250,6 +253,63 @@ async fn test_get_metadata() {
     tokio::fs::remove_file(format!("files/{user_id}/{file_name}"))
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn test_get_metadata_with_wrong_token() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "metadata_wrong_token_user_id";
+    let file_name = "my_file.txt";
+    let port = spawn_serve().await.unwrap().port();
+
+    create_file_and_dir(user_id, file_name).await;
+
+    let bad_tokens = [
+        generate_jwt_token(user_id, "download", Some(file_name.to_string())),
+        generate_jwt_token(user_id, "metadata", Some("other_file.txt".to_string())),
+        generate_jwt_token("other_user", "metadata", Some(file_name.to_string())),
+        "not.a.valid.jwt".to_string(),
+    ];
+
+    let client = Client::new();
+    for token in bad_tokens {
+        let res = client
+            .get(format!(
+                "http://localhost:{port}/files/{user_id}/{file_name}/metadata?token={token}"
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}"))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_get_metadata_unexistent_file() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "metadata_test_user_id2";
+    let file_name = "unexistent_file.txt";
+    let token = generate_jwt_token(user_id, "metadata", Some(file_name.to_string()));
+
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client
+        .get(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}/metadata?token={token}"
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
 async fn spawn_serve() -> Result<SocketAddr, std::io::Error> {
@@ -298,4 +358,183 @@ fn generate_jwt_token(user_id: &str, scope: &str, file_name: Option<String>) -> 
         &EncodingKey::from_secret(token_secret.as_ref()),
     )
     .unwrap()
+}
+
+// Status code tests: these assert the *correct* HTTP code for each error case.
+
+#[tokio::test]
+async fn test_missing_token_is_unauthorized() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "missing_token_user_id";
+    let file_name = "my_file.txt";
+    let port = spawn_serve().await.unwrap().port();
+    let url = format!("http://localhost:{port}/files/{user_id}/{file_name}");
+
+    let client = Client::new();
+    let requests = [
+        client.get(&url),
+        client.put(&url).body(b"hello".to_vec()),
+        client.delete(&url),
+        client.get(format!("{url}/metadata")),
+    ];
+
+    for req in requests {
+        let res = req.send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[tokio::test]
+async fn test_invalid_id_is_bad_request() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "bad.id";
+    let file_name = "my_file.txt";
+    let token = generate_jwt_token(user_id, "download", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client
+        .get(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_invalid_file_name_is_bad_request() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "invalid_file_name_user_id";
+    let file_name = "no_extension";
+    let token = generate_jwt_token(user_id, "download", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client
+        .get(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_direct_upload_over_limit_is_payload_too_large() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "direct_upload_over_limit_user_id";
+    let file_name = "big_file.bin";
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .body(over_limit_body())
+        .send()
+        .await
+        .unwrap();
+
+    let status = res.status();
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}"))
+        .await
+        .ok();
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn test_multipart_upload_over_limit_is_payload_too_large() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_upload_over_limit_user_id";
+    let file_name = "big_file.bin";
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new().part(
+        "file",
+        reqwest::multipart::Part::bytes(over_limit_body()).file_name(file_name),
+    );
+    let res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let status = res.status();
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}"))
+        .await
+        .ok();
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn test_malformed_multipart_is_bad_request() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "malformed_multipart_user_id";
+    let file_name = "my_file.txt";
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .header("content-type", "multipart/form-data") // no boundary
+        .body(b"hello".to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_empty_multipart_is_bad_request() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "empty_multipart_user_id";
+    let file_name = "my_file.txt";
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(reqwest::multipart::Form::new())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+fn over_limit_body() -> Vec<u8> {
+    let max_body_limit: usize = std::env::var("MAX_BODY_LIMIT")
+        .expect("MAX_BODY_LIMIT must be set")
+        .parse()
+        .unwrap();
+
+    vec![0u8; (max_body_limit + 1) * 1024 * 1024]
 }

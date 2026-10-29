@@ -132,9 +132,9 @@ pub async fn delete_file(
 
 pub async fn get_metadata(
     Path((id, file_name)): Path<(String, String)>,
+    Query(params): Query<Params>,
 ) -> Result<Response, ResponseError> {
-    // TODO add jwt token
-
+    check_jwt_token(&params.token, &id, "metadata", Some(file_name.clone()))?;
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
 
