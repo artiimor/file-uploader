@@ -157,7 +157,7 @@ async fn handle_multipart_upload(id: &String, file_name: &String, multipart: &mu
         .await
         .map_err(|_| ResponseError::InternalError)? {
 
-        check_file_name_regex(&file_name)?;
+        check_file_name_regex(file_name)?;
 
         let path = format!("files/{id}/{file_name}");
         let mut file = create_file(&path).await?;
@@ -204,6 +204,7 @@ static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
 mod tests {
     use super::*;
     use std::sync::Once;
+    use jsonwebtoken::{encode, decode, get_current_timestamp, Header, EncodingKey, DecodingKey, Validation};
 
     static INIT: Once = Once::new();
 
@@ -211,6 +212,30 @@ mod tests {
         INIT.call_once(|| {
             dotenvy::dotenv().ok();
         });
+    }
+
+    fn generate_jwt_token(user_id: &str, scope: &str, file_name: Option<String>) -> Result<String, ResponseError> {
+        let token_secret = std::env::var("JWT_SECRET")
+            .expect("JWT_SECRET must be set");
+
+        if scope != "upload" && scope != "download" {
+            return Err(ResponseError::InternalError)
+        }
+
+        let claims = Claims {
+            sub: user_id.to_owned(),
+            exp: get_current_timestamp() + 300, // 5 mins alive
+            scope: scope.to_string(),
+            file_name,
+        };
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(token_secret.as_ref()),
+        ).map_err(|_| ResponseError::InternalError)?;
+
+        Ok(token)
     }
 
     #[test]
