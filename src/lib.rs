@@ -15,6 +15,7 @@ pub enum ResponseError {
     InvalidId,
     Unauthorized,
     InvalidUrl,
+    MissingFile,
 }
 
 impl IntoResponse for ResponseError {
@@ -49,6 +50,11 @@ impl IntoResponse for ResponseError {
             ResponseError::InvalidUrl => {
                 (StatusCode::UNAUTHORIZED, "URL is not valid".to_string()).into_response()
             }
+            ResponseError::MissingFile => (
+                StatusCode::BAD_REQUEST,
+                "No file found in the request".to_string(),
+            )
+                .into_response(),
         }
     }
 }

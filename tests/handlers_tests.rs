@@ -530,6 +530,136 @@ async fn test_empty_multipart_is_bad_request() {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
 
+#[tokio::test]
+async fn test_multipart_first_two_files_keeps_first() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_first_two_files_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new()
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"first".to_vec()).file_name(file_name),
+        )
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"second".to_vec()).file_name(file_name),
+        );
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    // Read and clean up before asserting, so a failing assert leaves no garbage
+    let content = tokio::fs::read(&path).await.unwrap();
+    tokio::fs::remove_file(&path).await.unwrap();
+
+    assert_eq!(upload_res.status(), StatusCode::OK);
+    assert_eq!(content, b"first");
+}
+
+#[tokio::test]
+async fn test_multipart_first_text_field_before_file_is_ignored() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_first_text_before_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new()
+        .text("description", "not a file")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"hello world".to_vec()).file_name(file_name),
+        );
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let content = tokio::fs::read(&path).await.unwrap();
+    tokio::fs::remove_file(&path).await.unwrap();
+
+    assert_eq!(upload_res.status(), StatusCode::OK);
+    assert_eq!(content, b"hello world");
+}
+
+#[tokio::test]
+async fn test_multipart_first_text_field_after_file_is_ignored() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_first_text_after_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new()
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"hello world".to_vec()).file_name(file_name),
+        )
+        .text("description", "not a file");
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let content = tokio::fs::read(&path).await.unwrap();
+    tokio::fs::remove_file(&path).await.unwrap();
+
+    assert_eq!(upload_res.status(), StatusCode::OK);
+    assert_eq!(content, b"hello world");
+}
+
+#[tokio::test]
+async fn test_multipart_first_no_file_is_bad_request() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_first_no_file_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
+    // Remove leftovers from previous failed runs, otherwise the existence check is meaningless
+    let _ = tokio::fs::remove_file(&path).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new().text("description", "not a file");
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(upload_res.status(), StatusCode::BAD_REQUEST);
+    assert!(!tokio::fs::try_exists(&path).await.unwrap());
+}
+
 fn over_limit_body() -> Vec<u8> {
     let max_body_limit: usize = std::env::var("MAX_BODY_LIMIT")
         .expect("MAX_BODY_LIMIT must be set")

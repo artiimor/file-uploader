@@ -196,12 +196,16 @@ async fn handle_multipart_upload(
     file_name: &String,
     multipart: &mut Multipart,
 ) -> Result<(), ResponseError> {
+    check_file_name_regex(file_name)?;
+
     while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|_| ResponseError::InternalError)?
     {
-        check_file_name_regex(file_name)?;
+        if field.file_name().is_none() {
+            continue;
+        }
 
         let path = format!("files/{id}/{file_name}");
         let mut file = create_file(&path).await?;
@@ -216,8 +220,9 @@ async fn handle_multipart_upload(
                 .await
                 .map_err(|_| ResponseError::InternalError)?;
         }
+        return Ok(());
     }
-    Ok(())
+    Err(ResponseError::MissingFile)
 }
 
 async fn handle_direct_upload(
