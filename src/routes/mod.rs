@@ -15,6 +15,11 @@ pub fn router() -> Router {
         .parse()
         .expect("Error parsing allowed origins")];
 
+    let max_body_limit: usize = std::env::var("MAX_BODY_LIMIT")
+        .expect("max_body_limit must be set")
+        .parse()
+        .expect("max_body_limit format was wrong");
+
     let cors = CorsLayer::new()
         .allow_origin(allowed_origins)
         .allow_methods(vec![Method::GET, Method::PUT, Method::DELETE]);
@@ -25,7 +30,6 @@ pub fn router() -> Router {
         .route("/health", get(health))
         .route("/files/{id}/{file_name}", put(upload_file))
         .route("/files/{id}/{file_name}/metadata", get(get_metadata))
-        // axum's default body limit is 2MB; upload needs room for real files.
-        .layer(DefaultBodyLimit::disable())
+        .layer(DefaultBodyLimit::max(max_body_limit * 1024 * 1024))
         .layer(cors)
 }
