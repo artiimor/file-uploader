@@ -13,7 +13,7 @@ use std::path::Path as StdPath;
 use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Serialize, Deserialize};
-use jsonwebtoken::{encode, decode, get_current_timestamp, Header, EncodingKey, DecodingKey, Validation};
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use futures_util::StreamExt;
 
 #[derive(Serialize, Deserialize)]
@@ -117,30 +117,6 @@ pub async fn get_metadata(Path((id, file_name)): Path<(String, String)>) -> Resu
     Ok((StatusCode::OK, format!("The file size is {} bytes!", metadata.len())).into_response())
 }
 
-fn generate_jwt_token(user_id: &str, scope: &str, file_name: Option<String>) -> Result<String, ResponseError> {
-    let token_secret = std::env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set");
-
-    if scope != "upload" && scope != "download" {
-        return Err(ResponseError::InternalError)
-    }
-
-    let claims = Claims {
-    sub: user_id.to_owned(),
-    exp: get_current_timestamp() + 300, // 5 mins alive
-    scope: scope.to_string(),
-    file_name: file_name,
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(token_secret.as_ref()),
-    ).map_err(|_| ResponseError::InternalError)?;
-
-    Ok(token)
-}
-
 fn check_file_name_regex(file_name: &str) -> Result<(), ResponseError> {
     if FILE_RE.is_match(file_name) {
         Ok(())
@@ -158,8 +134,7 @@ fn check_id_regex(id: &str) -> Result<(), ResponseError> {
 }
 
 fn check_jwt_token(token: &String, user_id: &String, scope: &str, file_name: Option<String>) -> Result<(), ResponseError> {
-    let token_secret = std::env::var("JWT_SECRET")
-        .expect("jwt_secret must be set");
+    let token_secret = std::env::var("JWT_SECRET") .expect("jwt_secret must be set");
 
     let token_data = decode::<Claims>(
             token,
