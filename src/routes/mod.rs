@@ -1,22 +1,19 @@
-use axum::{ http::Method, routing::{get, put, delete},
+use crate::handlers::photos::{delete_file, get_files, get_metadata, health, upload_file};
+use axum::{
     Router,
     extract::DefaultBodyLimit,
+    http::Method,
+    routing::{delete, get, put},
 };
 use tower_http::cors::CorsLayer;
-use crate::handlers::photos::{
-    health,
-    get_files,
-    upload_file,
-    delete_file,
-    get_metadata,
-};
 
-pub fn router() -> Router{
+pub fn router() -> Router {
     dotenvy::dotenv().ok();
 
     let allowed_origins = [std::env::var("ALLOWED_ORIGINS")
         .expect("allowed_origins must be set")
-        .parse().unwrap()];
+        .parse()
+        .expect("Error parsing allowed origins")];
 
     let cors = CorsLayer::new()
         .allow_origin(allowed_origins)

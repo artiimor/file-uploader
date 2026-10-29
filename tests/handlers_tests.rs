@@ -1,15 +1,16 @@
-use std::net::SocketAddr;
 use file_uploader::app;
+use jsonwebtoken::{EncodingKey, Header, encode, get_current_timestamp};
 use reqwest::{Client, StatusCode};
-use serde::{Serialize, Deserialize};
-use jsonwebtoken::{encode, get_current_timestamp, Header, EncodingKey};
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 
 #[tokio::test]
 async fn test_health_check_integration() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://0.0.0.0:{port}/health"))
+    let res = client
+        .get(format!("http://0.0.0.0:{port}/health"))
         .send()
         .await
         .unwrap();
@@ -30,7 +31,10 @@ async fn test_download_unexistent_file() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+    let download_res = client
+        .get(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
         .send()
         .await
         .unwrap();
@@ -53,15 +57,22 @@ async fn test_download_with_wrong_token_file() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+    let download_res = client
+        .get(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
         .send()
         .await
         .unwrap();
 
     assert_eq!(download_res.status(), StatusCode::UNAUTHORIZED);
 
-    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
-    tokio::fs::remove_file(format!("files/{user_id}/{other_file_name}")).await.unwrap();
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}"))
+        .await
+        .unwrap();
+    tokio::fs::remove_file(format!("files/{user_id}/{other_file_name}"))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -79,15 +90,22 @@ async fn test_download_with_wrong_token_user() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let download_res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+    let download_res = client
+        .get(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
         .send()
         .await
         .unwrap();
 
     assert_eq!(download_res.status(), StatusCode::UNAUTHORIZED);
 
-    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
-    tokio::fs::remove_file(format!("files/{other_user_id}/{file_name}")).await.unwrap();
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}"))
+        .await
+        .unwrap();
+    tokio::fs::remove_file(format!("files/{other_user_id}/{file_name}"))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -101,10 +119,14 @@ async fn test_upload_with_generated_url() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let form = reqwest::multipart::Form::new()
-        .part("file", reqwest::multipart::Part::bytes(b"hello world".to_vec())
-        .file_name(file_name));
-    let upload_res = client.put(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+    let form = reqwest::multipart::Form::new().part(
+        "file",
+        reqwest::multipart::Part::bytes(b"hello world".to_vec()).file_name(file_name),
+    );
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
         .multipart(form)
         .send()
         .await
@@ -113,7 +135,9 @@ async fn test_upload_with_generated_url() {
     assert_eq!(upload_res.status(), StatusCode::OK);
     assert!(tokio::fs::try_exists(&path).await.unwrap());
     assert_eq!(tokio::fs::read(&path).await.unwrap(), b"hello world");
-    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}"))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -127,7 +151,10 @@ async fn test_direct_upload_with_generated_url() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let upload_res = client.put(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
         .body(b"hello world".to_vec())
         .send()
         .await
@@ -152,7 +179,10 @@ async fn test_delete_file() {
     create_file_and_dir(user_id, file_name).await;
 
     let client = Client::new();
-    let delete_res = client.delete(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+    let delete_res = client
+        .delete(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
         .send()
         .await
         .unwrap();
@@ -181,7 +211,10 @@ async fn test_delete_file_with_wrong_token() {
 
     let client = Client::new();
     for token in bad_tokens {
-        let delete_res = client.delete(format!("http://localhost:{port}/files/{user_id}/{file_name}?token={token}"))
+        let delete_res = client
+            .delete(format!(
+                "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+            ))
             .send()
             .await
             .unwrap();
@@ -202,7 +235,10 @@ async fn test_get_metadata() {
     let port = spawn_serve().await.unwrap().port();
 
     let client = Client::new();
-    let res = client.get(format!("http://localhost:{port}/files/{user_id}/{file_name}/metadata"))
+    let res = client
+        .get(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}/metadata"
+        ))
         .send()
         .await
         .unwrap();
@@ -211,7 +247,9 @@ async fn test_get_metadata() {
     let body = res.text().await.unwrap();
     assert_eq!(body, "The file size is 5 bytes!");
 
-    tokio::fs::remove_file(format!("files/{user_id}/{file_name}")).await.unwrap();
+    tokio::fs::remove_file(format!("files/{user_id}/{file_name}"))
+        .await
+        .unwrap();
 }
 
 async fn spawn_serve() -> Result<SocketAddr, std::io::Error> {
@@ -228,21 +266,24 @@ async fn spawn_serve() -> Result<SocketAddr, std::io::Error> {
 async fn create_file_and_dir(user_id: &str, file_name: &str) {
     // If test fails is nevet deleted
     // TODO create temp dile with impl of drop that removes it always
-    tokio::fs::create_dir_all(format!("files/{user_id}")).await.unwrap();
-    tokio::fs::write(format!("files/{user_id}/{file_name}"), b"hello").await.unwrap();
+    tokio::fs::create_dir_all(format!("files/{user_id}"))
+        .await
+        .unwrap();
+    tokio::fs::write(format!("files/{user_id}/{file_name}"), b"hello")
+        .await
+        .unwrap();
 }
 
 #[derive(Serialize, Deserialize)]
 struct Claims {
-    sub: String,   // user id
+    sub: String, // user id
     exp: u64,
     scope: String,
     file_name: Option<String>,
 }
 
 fn generate_jwt_token(user_id: &str, scope: &str, file_name: Option<String>) -> String {
-    let token_secret = std::env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set");
+    let token_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
 
     let claims = Claims {
         sub: user_id.to_owned(),
@@ -255,6 +296,6 @@ fn generate_jwt_token(user_id: &str, scope: &str, file_name: Option<String>) -> 
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(token_secret.as_ref()),
-    ).unwrap()
+    )
+    .unwrap()
 }
-
