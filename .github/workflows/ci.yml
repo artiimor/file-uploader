@@ -8,7 +8,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Dummy secrets: tests only need them to be set and consistent.
-  API_KEY: ci-api-key
+  ALLOWED_ORIGINS: http://localhost:6767
   JWT_SECRET: ci-jwt-secret
 
 jobs:
