@@ -197,6 +197,26 @@ async fn handle_multipart_upload(
     multipart: &mut Multipart,
 ) -> Result<(), ResponseError> {
     check_file_name_regex(file_name)?;
+    let tmp_file_name = format!("{file_name}.tmp");
+    let tmp_path = format!("files/{id}/{tmp_file_name}");
+
+    if let Err(e) = write_data_in_file(tmp_file_name.clone(), id.to_string(), multipart).await {
+        let _ = remove_file(&tmp_path).await;
+
+        return Err(e);
+    }
+
+    if let Err(_) = tokio::fs::rename(tmp_path.clone(), format!("files/{id}/{file_name}")).await {
+        let _ = remove_file(&tmp_path).await;
+        return Err(ResponseError::InternalError);
+    }
+    Ok(())
+}
+
+async fn write_data_in_file(tmp_file_name: String,
+                            id: String,
+                            multipart: &mut axum::extract::Multipart) ->
+                            Result<(), ResponseError> {
 
     while let Some(mut field) = multipart
         .next_field()
@@ -207,8 +227,8 @@ async fn handle_multipart_upload(
             continue;
         }
 
-        let path = format!("files/{id}/{file_name}");
-        let mut file = create_file(&path).await?;
+        let tmp_path = format!("files/{id}/{tmp_file_name}");
+        let mut tmp_file = create_file(&tmp_path).await?;
 
         // Write the data
         while let Some(chunk) = field
@@ -216,7 +236,7 @@ async fn handle_multipart_upload(
             .await
             .map_err(|_| ResponseError::InternalError)?
         {
-            file.write_all(&chunk)
+            tmp_file.write_all(&chunk)
                 .await
                 .map_err(|_| ResponseError::InternalError)?;
         }
@@ -232,11 +252,24 @@ async fn handle_direct_upload(
 ) -> Result<(), ResponseError> {
     check_file_name_regex(file_name)?;
     let path = format!("files/{id}/{file_name}");
+    let tmp_path = format!("{path}.tmp");
 
-    let mut file = create_file(&path).await?;
+    if let Err(_) = stream_write_in_path(request, tmp_path.clone()).await {
+        let _ = remove_file(&tmp_path).await;
+        return Err(ResponseError::InternalError);
+    }
 
+    if let Err(_) = tokio::fs::rename(tmp_path.clone(), path).await {
+        let _ = remove_file(&tmp_path.clone()).await;
+        return Err(ResponseError::InternalError);
+    }
+    Ok(())
+}
+
+async fn stream_write_in_path(request: Request, tmp_path: String) -> Result<(), ResponseError> {
+    let mut file = create_file(&tmp_path).await?;
     let mut stream = request.into_body().into_data_stream();
-    // TODO if it fails we must delete the file
+
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|_| ResponseError::InternalError)?;
         file.write_all(&chunk)

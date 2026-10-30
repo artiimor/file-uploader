@@ -3,6 +3,8 @@ use jsonwebtoken::{EncodingKey, Header, encode, get_current_timestamp};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 #[tokio::test]
 async fn test_health_check_integration() {
@@ -667,4 +669,290 @@ fn over_limit_body() -> Vec<u8> {
         .unwrap();
 
     vec![0u8; (max_body_limit + 1) * 1024 * 1024]
+}
+
+// Atomic upload tests: data is written to a temporary file and renamed at the end.
+// A failed upload must leave the previous file intact and no garbage behind.
+
+#[tokio::test]
+async fn test_multipart_upload_leaves_no_tmp_files() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_atomic_no_tmp_user_id";
+    let file_name = "my_file.txt";
+    reset_user_dir(user_id).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new().part(
+        "file",
+        reqwest::multipart::Part::bytes(b"hello world".to_vec()).file_name(file_name),
+    );
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let entries = user_dir_entries(user_id).await;
+    reset_user_dir(user_id).await;
+
+    assert_eq!(upload_res.status(), StatusCode::OK);
+    assert_eq!(entries, vec![file_name.to_string()]);
+}
+
+#[tokio::test]
+async fn test_multipart_upload_overwrites_existing_file() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_atomic_overwrite_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
+    reset_user_dir(user_id).await;
+    create_file_and_dir(user_id, file_name).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new().part(
+        "file",
+        reqwest::multipart::Part::bytes(b"new content".to_vec()).file_name(file_name),
+    );
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let content = tokio::fs::read(&path).await.unwrap();
+    let entries = user_dir_entries(user_id).await;
+    reset_user_dir(user_id).await;
+
+    assert_eq!(upload_res.status(), StatusCode::OK);
+    assert_eq!(content, b"new content");
+    assert_eq!(entries, vec![file_name.to_string()]);
+}
+
+#[tokio::test]
+async fn test_multipart_upload_failure_keeps_existing_file() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_atomic_keep_existing_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
+    reset_user_dir(user_id).await;
+    create_file_and_dir(user_id, file_name).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    // Over the body limit: the stream fails after some chunks were already written
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new().part(
+        "file",
+        reqwest::multipart::Part::bytes(over_limit_body()).file_name(file_name),
+    );
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let content = tokio::fs::read(&path).await.unwrap();
+    let entries = user_dir_entries(user_id).await;
+    reset_user_dir(user_id).await;
+
+    assert!(!upload_res.status().is_success());
+    assert!(
+        content == b"hello",
+        "existing file was overwritten ({} bytes)",
+        content.len()
+    );
+    assert_eq!(entries, vec![file_name.to_string()]);
+}
+
+#[tokio::test]
+async fn test_multipart_upload_failure_leaves_no_garbage() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "multipart_atomic_no_garbage_user_id";
+    let file_name = "my_file.txt";
+    reset_user_dir(user_id).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let form = reqwest::multipart::Form::new().part(
+        "file",
+        reqwest::multipart::Part::bytes(over_limit_body()).file_name(file_name),
+    );
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let entries = user_dir_entries(user_id).await;
+    reset_user_dir(user_id).await;
+
+    assert!(!upload_res.status().is_success());
+    assert_eq!(entries, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn test_direct_upload_leaves_no_tmp_files() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "direct_atomic_no_tmp_user_id";
+    let file_name = "my_file.txt";
+    reset_user_dir(user_id).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .body(b"hello world".to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    let entries = user_dir_entries(user_id).await;
+    reset_user_dir(user_id).await;
+
+    assert_eq!(upload_res.status(), StatusCode::OK);
+    assert_eq!(entries, vec![file_name.to_string()]);
+}
+
+#[tokio::test]
+async fn test_direct_upload_overwrites_existing_file() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "direct_atomic_overwrite_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
+    reset_user_dir(user_id).await;
+    create_file_and_dir(user_id, file_name).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let client = Client::new();
+    let upload_res = client
+        .put(format!(
+            "http://localhost:{port}/files/{user_id}/{file_name}?token={token}"
+        ))
+        .body(b"new content".to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    let content = tokio::fs::read(&path).await.unwrap();
+    let entries = user_dir_entries(user_id).await;
+    reset_user_dir(user_id).await;
+
+    assert_eq!(upload_res.status(), StatusCode::OK);
+    assert_eq!(content, b"new content");
+    assert_eq!(entries, vec![file_name.to_string()]);
+}
+
+#[tokio::test]
+async fn test_direct_upload_failure_keeps_existing_file() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "direct_atomic_keep_existing_user_id";
+    let file_name = "my_file.txt";
+    let path = format!("files/{user_id}/{file_name}");
+    reset_user_dir(user_id).await;
+    create_file_and_dir(user_id, file_name).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let response = send_truncated_direct_upload(port, user_id, file_name, &token).await;
+
+    let content = tokio::fs::read(&path).await.unwrap();
+    let entries = user_dir_entries(user_id).await;
+    reset_user_dir(user_id).await;
+
+    assert!(!response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(
+        content == b"hello",
+        "existing file was overwritten ({} bytes)",
+        content.len()
+    );
+    assert_eq!(entries, vec![file_name.to_string()]);
+}
+
+#[tokio::test]
+async fn test_direct_upload_failure_leaves_no_garbage() {
+    dotenvy::dotenv().ok();
+
+    let user_id = "direct_atomic_no_garbage_user_id";
+    let file_name = "my_file.txt";
+    reset_user_dir(user_id).await;
+    let token = generate_jwt_token(user_id, "upload", Some(file_name.to_string()));
+    let port = spawn_serve().await.unwrap().port();
+
+    let response = send_truncated_direct_upload(port, user_id, file_name, &token).await;
+
+    let entries = user_dir_entries(user_id).await;
+    reset_user_dir(user_id).await;
+
+    assert!(!response.starts_with("HTTP/1.1 200"), "{response}");
+    assert_eq!(entries, Vec::<String>::new());
+}
+
+/// Sends a PUT that promises more bytes than it delivers and then closes its write side,
+/// so the body stream fails on the server after the first chunk was received.
+/// Returns the raw HTTP response once the server has finished handling the request.
+async fn send_truncated_direct_upload(
+    port: u16,
+    user_id: &str,
+    file_name: &str,
+    token: &str,
+) -> String {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let head = format!(
+        "PUT /files/{user_id}/{file_name}?token={token} HTTP/1.1\r\n\
+         Host: localhost\r\n\
+         Content-Length: 1000\r\n\
+         Connection: close\r\n\r\n"
+    );
+    stream.write_all(head.as_bytes()).await.unwrap();
+    stream.write_all(b"partial content").await.unwrap();
+    stream.shutdown().await.unwrap();
+
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).await.unwrap();
+    String::from_utf8_lossy(&response).into_owned()
+}
+
+/// Sorted names of everything inside files/{user_id}, empty if the dir does not exist
+async fn user_dir_entries(user_id: &str) -> Vec<String> {
+    let mut entries = Vec::new();
+    let Ok(mut dir) = tokio::fs::read_dir(format!("files/{user_id}")).await else {
+        return entries;
+    };
+    while let Some(entry) = dir.next_entry().await.unwrap() {
+        entries.push(entry.file_name().to_string_lossy().into_owned());
+    }
+    entries.sort();
+    entries
+}
+
+async fn reset_user_dir(user_id: &str) {
+    let _ = tokio::fs::remove_dir_all(format!("files/{user_id}")).await;
 }
