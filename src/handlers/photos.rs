@@ -206,7 +206,7 @@ async fn handle_multipart_upload(
         return Err(e);
     }
 
-    if let Err(_) = tokio::fs::rename(tmp_path.clone(), format!("files/{id}/{file_name}")).await {
+    if tokio::fs::rename(tmp_path.clone(), format!("files/{id}/{file_name}")).await.is_err() {
         let _ = remove_file(&tmp_path).await;
         return Err(ResponseError::InternalError);
     }
@@ -254,12 +254,12 @@ async fn handle_direct_upload(
     let path = format!("files/{id}/{file_name}");
     let tmp_path = format!("{path}.tmp");
 
-    if let Err(_) = stream_write_in_path(request, tmp_path.clone()).await {
+    if stream_write_in_path(request, tmp_path.clone()).await.is_err() {
         let _ = remove_file(&tmp_path).await;
         return Err(ResponseError::InternalError);
     }
 
-    if let Err(_) = tokio::fs::rename(tmp_path.clone(), path).await {
+    if tokio::fs::rename(tmp_path.clone(), path).await.is_err() {
         let _ = remove_file(&tmp_path.clone()).await;
         return Err(ResponseError::InternalError);
     }
