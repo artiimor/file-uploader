@@ -16,6 +16,8 @@ pub enum ResponseError {
     Unauthorized,
     InvalidUrl,
     MissingFile,
+    TooLarge,
+    EmptyMultipart,
 }
 
 impl IntoResponse for ResponseError {
@@ -27,34 +29,37 @@ impl IntoResponse for ResponseError {
             ResponseError::InternalError => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error 500 internal error".to_string(),
-            )
-                .into_response(),
+            ).into_response(),
             ResponseError::FileExtError => (
                 StatusCode::NOT_ACCEPTABLE,
                 "File extension not acceptable".to_string(),
-            )
-                .into_response(),
+            ).into_response(),
             ResponseError::InvalidId => {
-                (StatusCode::NOT_ACCEPTABLE, "Id is not valid".to_string()).into_response()
+                (StatusCode::BAD_REQUEST, "Id is not valid".to_string()).into_response()
             }
             ResponseError::InvalidFileName => (
-                StatusCode::NOT_ACCEPTABLE,
+                StatusCode::BAD_REQUEST,
                 "File name is not valid".to_string(),
-            )
-                .into_response(),
+            ).into_response(),
             ResponseError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "Error, auth is not valid".to_string(),
-            )
-                .into_response(),
+            ).into_response(),
             ResponseError::InvalidUrl => {
                 (StatusCode::UNAUTHORIZED, "URL is not valid".to_string()).into_response()
             }
             ResponseError::MissingFile => (
                 StatusCode::BAD_REQUEST,
                 "No file found in the request".to_string(),
-            )
-                .into_response(),
+            ).into_response(),
+            ResponseError::TooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "File exceeded the limit!".to_string()
+            ).into_response(),
+            ResponseError::EmptyMultipart => (
+                StatusCode::BAD_REQUEST,
+                "Missing multipart".to_string(),
+            ).into_response(),
         }
     }
 }

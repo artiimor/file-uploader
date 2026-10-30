@@ -90,7 +90,7 @@ pub async fn upload_file(
     if is_multipart {
         let mut multipart = Multipart::from_request(request, &())
             .await
-            .map_err(|_| ResponseError::InternalError)?;
+            .map_err(|_| ResponseError::EmptyMultipart)?;
         handle_multipart_upload(&id, &file_name, &mut multipart).await?;
     } else {
         handle_direct_upload(&id, &file_name, request).await?;
