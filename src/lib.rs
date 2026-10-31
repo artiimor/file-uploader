@@ -6,6 +6,11 @@ use axum::{
 mod handlers;
 mod routes;
 
+#[derive(Clone)]
+pub struct AppConfig {
+    pub files_root_path: String,
+}
+
 #[derive(PartialEq, Debug)]
 pub enum ResponseError {
     NotFound,

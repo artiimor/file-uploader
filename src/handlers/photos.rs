@@ -1,7 +1,8 @@
 use crate::ResponseError;
+use crate::AppConfig;
 use axum::{
     body::Body,
-    extract::{FromRequest, Multipart, Path, Query, Request},
+    extract::{State, FromRequest, Multipart, Path, Query, Request},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -34,15 +35,16 @@ pub async fn health() -> Response {
 }
 
 pub async fn get_files(
+    State(config): State<AppConfig>,
     Path((id, file_name)): Path<(String, String)>,
     Query(params): Query<Params>,
 ) -> Result<Response, ResponseError> {
     check_jwt_token(&params.token, &id, "download", Some(file_name.clone()))?;
-
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
+    let files_root_path = config.files_root_path;
 
-    let path = format!("files/{id}/{file_name}");
+    let path = format!("{files_root_path}/{id}/{file_name}");
     let ext = StdPath::new(&file_name)
         .extension()
         .ok_or(ResponseError::FileExtError)?;
@@ -67,12 +69,14 @@ pub async fn get_files(
 }
 
 pub async fn upload_file(
+    State(config): State<AppConfig>,
     Path((id, file_name)): Path<(String, String)>,
     Query(params): Query<Params>,
     request: Request,
 ) -> Result<Response, ResponseError> {
     check_jwt_token(&params.token, &id, "upload", Some(file_name.clone()))?;
     check_id_regex(&id)?;
+    let files_root_path = config.files_root_path;
 
     let is_multipart = request
         .headers()
@@ -90,10 +94,10 @@ pub async fn upload_file(
     if is_multipart {
         let mut multipart = Multipart::from_request(request, &())
             .await
-            .map_err(|_| ResponseError::EmptyMultipart)?;
-        handle_multipart_upload(&id, &file_name, &mut multipart).await?;
+            .map_err(|_| ResponseError::InternalError)?;
+        handle_multipart_upload(files_root_path, &id, &file_name, &mut multipart).await?;
     } else {
-        handle_direct_upload(&id, &file_name, request).await?;
+        handle_direct_upload(files_root_path, &id, &file_name, request).await?;
     }
 
     Ok("File uploaded!".to_string().into_response())
@@ -112,14 +116,16 @@ pub async fn create_file(path: &String) -> Result<TokioFile, ResponseError> {
 }
 
 pub async fn delete_file(
+    State(config): State<AppConfig>,
     Path((id, file_name)): Path<(String, String)>,
     Query(params): Query<Params>,
 ) -> Result<Response, ResponseError> {
     check_jwt_token(&params.token, &id, "delete", Some(file_name.clone()))?;
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
+    let files_root_path = config.files_root_path;
 
-    let file_path = format!("files/{id}/{file_name}");
+    let file_path = format!("{files_root_path}/{id}/{file_name}");
     match remove_file(&file_path).await {
         Ok(()) => Ok((
             StatusCode::OK,
@@ -131,14 +137,16 @@ pub async fn delete_file(
 }
 
 pub async fn get_metadata(
+    State(config): State<AppConfig>,
     Path((id, file_name)): Path<(String, String)>,
     Query(params): Query<Params>,
 ) -> Result<Response, ResponseError> {
     check_jwt_token(&params.token, &id, "metadata", Some(file_name.clone()))?;
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
+    let files_root_path = config.files_root_path;
 
-    let file_path = format!("files/{id}/{file_name}");
+    let file_path = format!("{files_root_path}/{id}/{file_name}");
     let metadata = metadata(file_path)
         .await
         .map_err(|_| ResponseError::NotFound)?;
@@ -192,32 +200,33 @@ fn check_jwt_token(
 }
 
 async fn handle_multipart_upload(
+    files_root_path: String,
     id: &String,
     file_name: &String,
     multipart: &mut Multipart,
 ) -> Result<(), ResponseError> {
     check_file_name_regex(file_name)?;
     let tmp_file_name = format!("{file_name}.tmp");
-    let tmp_path = format!("files/{id}/{tmp_file_name}");
+    let tmp_path = format!("{files_root_path}/{id}/{tmp_file_name}");
 
-    if let Err(e) = write_data_in_file(tmp_file_name.clone(), id.to_string(), multipart).await {
+    if let Err(e) = write_data_in_file(files_root_path.clone(), tmp_file_name.clone(), id.to_string(), multipart).await {
         let _ = remove_file(&tmp_path).await;
 
         return Err(e);
     }
 
-    if tokio::fs::rename(tmp_path.clone(), format!("files/{id}/{file_name}")).await.is_err() {
+    if tokio::fs::rename(tmp_path.clone(), format!("{files_root_path}/{id}/{file_name}")).await.is_err() {
         let _ = remove_file(&tmp_path).await;
         return Err(ResponseError::InternalError);
     }
     Ok(())
 }
 
-async fn write_data_in_file(tmp_file_name: String,
+async fn write_data_in_file(files_root_path: String,
+                            tmp_file_name: String,
                             id: String,
                             multipart: &mut axum::extract::Multipart) ->
                             Result<(), ResponseError> {
-
     while let Some(mut field) = multipart
         .next_field()
         .await
@@ -227,7 +236,7 @@ async fn write_data_in_file(tmp_file_name: String,
             continue;
         }
 
-        let tmp_path = format!("files/{id}/{tmp_file_name}");
+        let tmp_path = format!("{files_root_path}/{id}/{tmp_file_name}");
         let mut tmp_file = create_file(&tmp_path).await?;
 
         // Write the data
@@ -246,12 +255,13 @@ async fn write_data_in_file(tmp_file_name: String,
 }
 
 async fn handle_direct_upload(
+    files_root_path: String,
     id: &String,
     file_name: &String,
     request: Request,
 ) -> Result<(), ResponseError> {
     check_file_name_regex(file_name)?;
-    let path = format!("files/{id}/{file_name}");
+    let path = format!("{files_root_path}/{id}/{file_name}");
     let tmp_path = format!("{path}.tmp");
 
     if stream_write_in_path(request, tmp_path.clone()).await.is_err() {
