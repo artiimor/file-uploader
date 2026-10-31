@@ -10,6 +10,10 @@ env:
   # Dummy secrets: tests only need them to be set and consistent.
   ALLOWED_ORIGINS: http://localhost:6767
   JWT_SECRET: ci-jwt-secret
+  # In MB. over_limit tests build a body of MAX_BODY_LIMIT + 1, keep it small.
+  MAX_BODY_LIMIT: 20
+  # Integration tests still hardcode "files/", must match until they read this var.
+  FILES_ROOT_PATH: files
 
 jobs:
   check:
