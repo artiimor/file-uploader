@@ -1,0 +1,10 @@
+services:
+  file-uploader:
+    build: .
+    ports:
+      - "3050:3050"
+    env_file:
+      - .env
+    volumes:
+      - ./files:/app/files
+    restart: unless-stopped

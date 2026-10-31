@@ -1,0 +1,7 @@
+target
+files
+.git
+.github
+.env
+.env.test
+tests
