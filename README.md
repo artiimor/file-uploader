@@ -1,5 +1,11 @@
 # file-uploader
 
+A small, stateless file storage service written in Rust (Axum + Tokio). Access is granted through S3-style presigned URLs (per-file, per-operation JWTs); uploads are written atomically (`.tmp` + `rename`) and both uploads and downloads are streamed, so memory use doesn't depend on file size.
+
+Used by [personal_photos](https://github.com/artiimor/personal_photos) as a custom Active Storage service.
+
+---
+
 HTTP service in Rust ([Axum](https://github.com/tokio-rs/axum) 0.8 + Tokio) to upload, download, delete and inspect files (built with photos in mind). It has no users and no database: **another backend signs a JWT** that authorizes one specific operation on one specific file, and this service only verifies it and carries it out.
 
 ```
@@ -201,3 +207,7 @@ tests/
 └── handlers_tests.rs    # integration tests
 files/                   # default storage (mounted as a volume in Docker)
 ```
+
+## License
+
+[MIT](LICENSE)
