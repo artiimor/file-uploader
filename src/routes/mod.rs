@@ -6,7 +6,7 @@ use axum::{
     http::Method,
     routing::{delete, get, put},
 };
-use tower_http::cors::CorsLayer;
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer};
 
 pub fn router() -> Router {
     dotenvy::dotenv().ok();
@@ -38,5 +38,6 @@ pub fn router() -> Router {
         .with_state(config)
         .route("/health", get(health))
         .layer(DefaultBodyLimit::max(max_body_limit * 1024 * 1024))
+        .layer(RequestBodyLimitLayer::new(max_body_limit * 1024 * 1024))
         .layer(cors)
 }

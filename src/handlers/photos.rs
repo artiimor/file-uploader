@@ -27,7 +27,7 @@ struct Claims {
 
 #[derive(Deserialize)]
 pub struct Params {
-    token: String,
+    token: Option<String>,
 }
 
 pub async fn health() -> Response {
@@ -39,7 +39,7 @@ pub async fn get_files(
     Path((id, file_name)): Path<(String, String)>,
     Query(params): Query<Params>,
 ) -> Result<Response, ResponseError> {
-    check_jwt_token(&params.token, &id, "download", Some(file_name.clone()))?;
+    check_jwt_token(params.token.as_ref(), &id, "download", Some(file_name.clone()))?;
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
     let files_root_path = config.files_root_path;
@@ -73,9 +73,10 @@ pub async fn upload_file(
     Path((id, file_name)): Path<(String, String)>,
     Query(params): Query<Params>,
     request: Request,
-) -> Result<Response, ResponseError> {
-    check_jwt_token(&params.token, &id, "upload", Some(file_name.clone()))?;
-    check_id_regex(&id)?;
+) -> Result<Response, Response> {
+    check_jwt_token(params.token.as_ref(), &id, "upload", Some(file_name.clone()))
+        .map_err(|err| err.into_response())?;
+    check_id_regex(&id).map_err(|err| err.into_response())?;
     let files_root_path = config.files_root_path;
 
     let is_multipart = request
@@ -94,10 +95,13 @@ pub async fn upload_file(
     if is_multipart {
         let mut multipart = Multipart::from_request(request, &())
             .await
-            .map_err(|_| ResponseError::InternalError)?;
-        handle_multipart_upload(files_root_path, &id, &file_name, &mut multipart).await?;
+            .map_err(|err| err.into_response())?;
+        handle_multipart_upload(files_root_path, &id, &file_name, &mut multipart)
+            .await?;
     } else {
-        handle_direct_upload(files_root_path, &id, &file_name, request).await?;
+        handle_direct_upload(files_root_path, &id, &file_name, request)
+            .await
+            .map_err(|err| err.into_response())?;
     }
 
     Ok("File uploaded!".to_string().into_response())
@@ -120,7 +124,7 @@ pub async fn delete_file(
     Path((id, file_name)): Path<(String, String)>,
     Query(params): Query<Params>,
 ) -> Result<Response, ResponseError> {
-    check_jwt_token(&params.token, &id, "delete", Some(file_name.clone()))?;
+    check_jwt_token(params.token.as_ref(), &id, "delete", Some(file_name.clone()))?;
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
     let files_root_path = config.files_root_path;
@@ -141,7 +145,7 @@ pub async fn get_metadata(
     Path((id, file_name)): Path<(String, String)>,
     Query(params): Query<Params>,
 ) -> Result<Response, ResponseError> {
-    check_jwt_token(&params.token, &id, "metadata", Some(file_name.clone()))?;
+    check_jwt_token(params.token.as_ref(), &id, "metadata", Some(file_name.clone()))?;
     check_file_name_regex(&file_name)?;
     check_id_regex(&id)?;
     let files_root_path = config.files_root_path;
@@ -175,15 +179,16 @@ fn check_id_regex(id: &str) -> Result<(), ResponseError> {
 }
 
 fn check_jwt_token(
-    token: &String,
+    token: Option<&String>,
     user_id: &String,
     scope: &str,
     file_name: Option<String>,
 ) -> Result<(), ResponseError> {
     let token_secret = std::env::var("JWT_SECRET").expect("jwt_secret must be set");
+    let token_string = token.ok_or(ResponseError::Unauthorized)?;
 
     let token_data = decode::<Claims>(
-        token,
+        token_string,
         &DecodingKey::from_secret(&token_secret.into_bytes()),
         &Validation::default(),
     )
@@ -204,8 +209,8 @@ async fn handle_multipart_upload(
     id: &String,
     file_name: &String,
     multipart: &mut Multipart,
-) -> Result<(), ResponseError> {
-    check_file_name_regex(file_name)?;
+) -> Result<(), Response> {
+    check_file_name_regex(file_name).map_err(|err| err.into_response())?;
     let tmp_file_name = format!("{file_name}.tmp");
     let tmp_path = format!("{files_root_path}/{id}/{tmp_file_name}");
 
@@ -217,7 +222,7 @@ async fn handle_multipart_upload(
 
     if tokio::fs::rename(tmp_path.clone(), format!("{files_root_path}/{id}/{file_name}")).await.is_err() {
         let _ = remove_file(&tmp_path).await;
-        return Err(ResponseError::InternalError);
+        return Err(ResponseError::InternalError.into_response());
     }
     Ok(())
 }
@@ -226,32 +231,34 @@ async fn write_data_in_file(files_root_path: String,
                             tmp_file_name: String,
                             id: String,
                             multipart: &mut axum::extract::Multipart) ->
-                            Result<(), ResponseError> {
+                            Result<(), Response> {
     while let Some(mut field) = multipart
         .next_field()
         .await
-        .map_err(|_| ResponseError::InternalError)?
+        .map_err(|_| ResponseError::EmptyMultipart.into_response())?
     {
         if field.file_name().is_none() {
             continue;
         }
 
         let tmp_path = format!("{files_root_path}/{id}/{tmp_file_name}");
-        let mut tmp_file = create_file(&tmp_path).await?;
+        let mut tmp_file = create_file(&tmp_path)
+            .await
+            .map_err(|err| err.into_response())?;
 
         // Write the data
         while let Some(chunk) = field
             .chunk()
             .await
-            .map_err(|_| ResponseError::InternalError)?
+            .map_err(|err| (err.status(), err.body_text()).into_response())?
         {
             tmp_file.write_all(&chunk)
                 .await
-                .map_err(|_| ResponseError::InternalError)?;
+                .map_err(|_| ResponseError::InternalError.into_response())?;
         }
         return Ok(());
     }
-    Err(ResponseError::MissingFile)
+    Err(ResponseError::MissingFile.into_response())
 }
 
 async fn handle_direct_upload(
@@ -364,7 +371,7 @@ mod tests {
         let token = generate_jwt_token(user_id, scope, None).unwrap();
 
         assert_eq!(
-            check_jwt_token(&token, &user_id.to_string(), scope, None),
+            check_jwt_token(Some(&token), &user_id.to_string(), scope, None),
             Ok(())
         );
     }
@@ -379,7 +386,7 @@ mod tests {
         let other_scope = "other_scope";
 
         assert_eq!(
-            check_jwt_token(&token, &user_id.to_string(), other_scope, None),
+            check_jwt_token(Some(&token), &user_id.to_string(), other_scope, None),
             Err(ResponseError::InvalidUrl)
         );
     }
@@ -394,7 +401,7 @@ mod tests {
         let token = generate_jwt_token(user_id, scope, None).unwrap();
 
         assert_eq!(
-            check_jwt_token(&token, &other_user_id.to_string(), scope, None),
+            check_jwt_token(Some(&token), &other_user_id.to_string(), scope, None),
             Err(ResponseError::InvalidUrl)
         );
     }
@@ -408,7 +415,7 @@ mod tests {
         let token = "not.a.valid.jwt".to_string();
 
         assert_eq!(
-            check_jwt_token(&token, &user_id.to_string(), scope, None),
+            check_jwt_token(Some(&token), &user_id.to_string(), scope, None),
             Err(ResponseError::Unauthorized)
         );
     }
@@ -424,7 +431,7 @@ mod tests {
 
         assert_eq!(
             check_jwt_token(
-                &token,
+                Some(&token),
                 &user_id.to_string(),
                 scope,
                 Some(file_name.to_string())
@@ -443,7 +450,7 @@ mod tests {
 
         assert_eq!(
             check_jwt_token(
-                &token,
+                Some(&token),
                 &user_id.to_string(),
                 scope,
                 Some("other_file.txt".to_string())
@@ -461,7 +468,7 @@ mod tests {
         let token = generate_jwt_token(user_id, scope, Some("file.txt".to_string())).unwrap();
 
         assert_eq!(
-            check_jwt_token(&token, &user_id.to_string(), scope, None),
+            check_jwt_token(Some(&token), &user_id.to_string(), scope, None),
             Err(ResponseError::InvalidUrl)
         );
     }
@@ -489,7 +496,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            check_jwt_token(&token, &user_id.to_string(), scope, None),
+            check_jwt_token(Some(&token), &user_id.to_string(), scope, None),
             Err(ResponseError::Unauthorized)
         );
     }
@@ -515,7 +522,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            check_jwt_token(&token, &user_id.to_string(), scope, None),
+            check_jwt_token(Some(&token), &user_id.to_string(), scope, None),
             Err(ResponseError::Unauthorized)
         );
     }
