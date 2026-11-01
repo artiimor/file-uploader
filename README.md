@@ -1,189 +1,203 @@
 # file-uploader
 
-Servicio HTTP en Rust ([Axum](https://github.com/tokio-rs/axum) 0.8 + Tokio) para subir, descargar, borrar y consultar ficheros (pensado para fotos). No tiene usuarios ni base de datos: **otro backend firma un JWT** que autoriza una operación concreta sobre un fichero concreto, y este servicio solo lo verifica y ejecuta.
+HTTP service in Rust ([Axum](https://github.com/tokio-rs/axum) 0.8 + Tokio) to upload, download, delete and inspect files (built with photos in mind). It has no users and no database: **another backend signs a JWT** that authorizes one specific operation on one specific file, and this service only verifies it and carries it out.
 
 ```
-Cliente ──(1) pide permiso──▶ Tu backend ──(2) firma JWT──▶ Cliente
-Cliente ──(3) PUT /files/{id}/{file}?token=JWT──▶ file-uploader ──▶ disco
+Client ──(1) asks for permission──▶ Your backend ──(2) signs JWT──▶ Client
+Client ──(3) PUT /files/{id}/{file}?token=JWT──▶ file-uploader ──▶ disk
 ```
 
-## Arranque rápido
+## Quick start
 
 ```bash
-cp .env.examples .env    # y rellena los valores
+cp .env.examples .env    # then fill in the values
 docker compose up -d --build
 curl localhost:3050/health
 ```
 
-Sin Docker:
+Without Docker:
 
 ```bash
 cargo run --release
 ```
 
-### Variables de entorno
+### Environment variables
 
-| Variable          | Ejemplo                  | Qué hace |
-|-------------------|--------------------------|----------|
-| `JWT_SECRET`      | `una-clave-larga`        | Secreto HMAC compartido con el backend que firma los tokens. |
-| `ALLOWED_ORIGINS` | `http://localhost:6767`  | Origen permitido por CORS. **Es un único origen**, no una lista. |
-| `MAX_BODY_LIMIT`  | `10`                     | Tamaño máximo del cuerpo de la petición, **en MB**. |
+| Variable          | Example                  | What it does |
+|-------------------|--------------------------|--------------|
+| `JWT_SECRET`      | `a-long-secret`          | HMAC secret shared with the backend that signs the tokens. |
+| `ALLOWED_ORIGINS` | `http://localhost:6767`  | Origin allowed by CORS. **It is a single origin**, not a list. |
+| `MAX_BODY_LIMIT`  | `10`                     | Maximum request body size, **in MB**. |
+| `FILES_ROOT_PATH` | `files`                  | Root folder where files are stored (`{FILES_ROOT_PATH}/{id}/{file_name}`). Relative to the working directory, or absolute. |
 
-Se cargan con `dotenvy` desde `.env` si existe; si no, del entorno del proceso (que es lo que hace `docker compose` con `env_file`). Si falta alguna, el servidor hace `panic` al arrancar (o en la primera petición, en el caso de `JWT_SECRET`): preferimos fallar pronto a arrancar mal configurado.
+They are loaded with `dotenvy` from `.env` if it exists; otherwise from the process environment (which is what `docker compose` does with `env_file`). Variables already set in the environment take precedence over `.env`.
+
+If any of them is missing, the server panics: `ALLOWED_ORIGINS`, `MAX_BODY_LIMIT` and `FILES_ROOT_PATH` are read when the router is built (at startup), and `JWT_SECRET` on every request that validates a token. Failing early beats starting up misconfigured.
+
+> **With Docker**, `FILES_ROOT_PATH` must point to the folder mounted as a volume: `files` (the `WORKDIR` is `/app`) or `/app/files`. With any other path, files are stored inside the container and are lost when it is recreated.
 
 ## API
 
-Todas las rutas de ficheros llevan el token en la query: `?token=<JWT>`.
+Every file route takes the token in the query string: `?token=<JWT>`.
 
-| Método   | Ruta                                  | Scope del JWT | Respuesta OK |
-|----------|---------------------------------------|---------------|--------------|
+| Method   | Route                                 | JWT scope     | Success response |
+|----------|---------------------------------------|---------------|------------------|
 | `GET`    | `/health`                             | —             | `200` |
-| `GET`    | `/files/{id}/{file_name}`             | `download`    | `200` + fichero en streaming |
+| `GET`    | `/files/{id}/{file_name}`             | `download`    | `200` + streamed file |
 | `PUT`    | `/files/{id}/{file_name}`             | `upload`      | `200 File uploaded!` |
-| `DELETE` | `/files/{id}/{file_name}`             | `delete`      | `200` |
-| `GET`    | `/files/{id}/{file_name}/metadata`    | `metadata`    | `200` + tamaño en bytes |
+| `DELETE` | `/files/{id}/{file_name}`             | `delete`      | `200 file {path} deleted successfully!` |
+| `GET`    | `/files/{id}/{file_name}/metadata`    | `metadata`    | `200 The file size is {n} bytes!` |
 
-### Formato del JWT
+Downloads are served with `Content-Type: image/{extension}` and `Content-Disposition: inline`, so the browser can display them directly in an `<img>`.
 
-Firmado con HS256 usando `JWT_SECRET`:
+### JWT format
+
+Signed with HS256 using `JWT_SECRET`:
 
 ```json
 {
-  "sub": "user_123",          // debe coincidir con {id} de la URL
-  "scope": "upload",          // debe coincidir con la operación
-  "file_name": "foto.jpg",    // debe coincidir con {file_name} de la URL
-  "exp": 1767225600           // obligatorio; se valida la expiración
+  "sub": "user_123",          // must match {id} in the URL
+  "scope": "upload",          // must match the operation
+  "file_name": "photo.jpg",   // must match {file_name} in the URL
+  "exp": 1767225600           // required; expiration is validated (with 60 s of leeway)
 }
 ```
 
-### Subida
+### Uploading
 
-`PUT` acepta dos formatos, según el `Content-Type`:
+`PUT` accepts two formats, depending on the `Content-Type`:
 
-- **Directo**: el cuerpo de la petición es el fichero tal cual.
+- **Direct**: the request body is the file as-is.
   ```bash
-  curl -X PUT --data-binary @foto.jpg "localhost:3050/files/user_123/foto.jpg?token=$TOKEN"
+  curl -X PUT --data-binary @photo.jpg "localhost:3050/files/user_123/photo.jpg?token=$TOKEN"
   ```
-- **Multipart** (`multipart/form-data`): se guarda el **primer campo que sea un fichero**; los campos de texto y los ficheros posteriores se ignoran.
+- **Multipart** (`multipart/form-data`): the **first field that is a file** is stored; text fields and any later files are ignored.
   ```bash
-  curl -X PUT -F "file=@foto.jpg" "localhost:3050/files/user_123/foto.jpg?token=$TOKEN"
+  curl -X PUT -F "file=@photo.jpg" "localhost:3050/files/user_123/photo.jpg?token=$TOKEN"
   ```
 
-Si el fichero ya existe, se sobrescribe.
+If the file already exists, it is overwritten.
 
-### Errores
+### Errors
 
-| Código | Cuándo |
-|--------|--------|
-| `400`  | `id` o `file_name` no válidos, multipart mal formado o sin fichero |
-| `401`  | Token ausente, mal firmado o caducado; o token válido pero para otro usuario/fichero/scope |
-| `404`  | El fichero no existe |
-| `406`  | El fichero no tiene extensión (descarga) |
-| `413`  | El cuerpo supera `MAX_BODY_LIMIT` |
-| `500`  | Fallo de disco |
+| Code   | When |
+|--------|------|
+| `400`  | Invalid `id` or `file_name`; malformed or empty multipart, or one with no file field |
+| `401`  | Missing, badly signed or expired token (`Error, auth is not valid`); or a valid token for another user/file/scope (`URL is not valid`) |
+| `404`  | The file does not exist |
+| `406`  | The file has no extension (download) |
+| `413`  | The body exceeds `MAX_BODY_LIMIT` (direct or multipart upload) |
+| `500`  | Disk failure |
 
-> **Estado actual**: la tabla describe el comportamiento objetivo, que fijan los tests. Ahora mismo 4 tests fallan:
-> - Sin `?token=` se devuelve `400` en vez de `401` (falla el extractor `Query` antes de llegar al handler).
-> - Subida directa por encima del límite: `200` en vez de `413`.
-> - Multipart por encima del límite: `500` en vez de `413`.
-> - Multipart vacío: `500` en vez de `400`.
+The token is checked **before** the `id` and `file_name` regexes: without a valid token for that URL, the response is always `401`, giving no hints about which paths are valid.
 
-## Decisiones de diseño
+## Design decisions
 
-### Autorización con JWT por operación (estilo *presigned URL*)
+### Per-operation JWT authorization (*presigned URL* style)
 
-En lugar de sesiones, API keys o un `Authorization: Bearer`, cada URL lleva un token que autoriza **una sola operación (`scope`) sobre un solo fichero (`sub` + `file_name`)** y caduca (`exp`).
+Instead of sessions, API keys or an `Authorization: Bearer` header, each URL carries a token that authorizes **a single operation (`scope`) on a single file (`sub` + `file_name`)** and expires (`exp`).
 
-- **Por qué**: el servicio no necesita saber nada de usuarios ni guardar estado. El backend principal decide quién puede hacer qué y firma la URL; este servicio solo comprueba la firma. Es el mismo modelo que las *presigned URLs* de S3.
-- **Por qué en la query y no en una cabecera**: así la URL funciona directamente en un `<img src="...">` o en un enlace de descarga, donde el navegador no deja añadir cabeceras.
-- **Por qué atar el token al fichero y al scope**: un token filtrado de descarga de `foto.jpg` no sirve para borrarla ni para leer otro fichero.
-- **Contrapartida**: los tokens en la URL pueden acabar en logs y en el historial del navegador. Por eso conviene que `exp` sea corto (minutos).
+- **Why**: the service doesn't need to know anything about users or keep any state. The main backend decides who can do what and signs the URL; this service only checks the signature. It's the same model as S3 *presigned URLs*.
+- **Why in the query and not in a header**: so the URL works directly in an `<img src="...">` or a download link, where the browser doesn't let you add headers.
+- **Why bind the token to the file and the scope**: a leaked download token for `photo.jpg` can't be used to delete it or to read another file.
+- **Why `token` is an `Option` in `Params`**: if it were required, the `Query` extractor would reject the request with `400` before reaching the handler. Being optional, the handler decides and returns `401`, which is the right answer for "missing credential".
+- **Trade-off**: tokens in URLs can end up in logs and browser history. That's why `exp` should be short (minutes).
 
-Antes hubo API key y Bearer token con middleware (ver historial de git); se quitaron en favor de este modelo, que es más simple.
+There used to be an API key and a Bearer token with middleware (see git history); they were removed in favor of this simpler model.
 
-### Validación de `id` y `file_name` con regex
+### Configuration in `State` (`AppConfig`)
+
+`FILES_ROOT_PATH` is read once when the router is built and stored in `AppConfig` (in `src/lib.rs`), which is passed to the handlers with `Router::with_state` and extracted with `State<AppConfig>`. This way handlers don't read the environment on every request and the path isn't hardcoded.
+
+### Validating `id` and `file_name` with regexes
 
 - `id`: `^[A-Za-z0-9_-]+$`
-- `file_name`: `^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$` (nombre + una extensión)
+- `file_name`: `^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$` (name + one extension)
 
-Las rutas en disco se construyen como `files/{id}/{file_name}`, así que estas regex son la defensa contra **path traversal** (`../../etc/passwd`): no se permiten `/`, `..` ni caracteres raros. Son listas blancas y deliberadamente estrictas. Las regex se compilan una sola vez con `LazyLock`.
+Paths on disk are built as `{FILES_ROOT_PATH}/{id}/{file_name}`, so these regexes are the defense against **path traversal** (`../../etc/passwd`): `/`, `..` and odd characters are not allowed. They are allowlists and deliberately strict. The regexes are compiled only once with `LazyLock`.
 
-### Escritura atómica: `.tmp` + `rename`
+### Atomic writes: `.tmp` + `rename`
 
-Las subidas se escriben primero en `files/{id}/{file_name}.tmp` y, cuando terminan bien, se hace `rename` al nombre final.
+Uploads are first written to `{FILES_ROOT_PATH}/{id}/{file_name}.tmp` and, once they finish successfully, `rename`d to the final name.
 
-- **Por qué**: si la subida falla a medias (corte de red, límite de tamaño superado), el fichero anterior **no se corrompe** y no quedan ficheros a medio escribir visibles. `rename` dentro del mismo sistema de ficheros es atómico.
-- Si algo falla, se borra el `.tmp`, para no dejar basura (hay tests que lo comprueban).
+- **Why**: if an upload fails halfway (network drop, size limit exceeded), the previous file **is not corrupted** and no half-written files are visible. `rename` within the same filesystem is atomic.
+- If something fails, the `.tmp` is deleted so no garbage is left behind (there are tests that check this).
 
-### Streaming en vez de cargar en memoria
+### Streaming instead of loading into memory
 
-Subidas y descargas van por streams (`into_data_stream`, `field.chunk()`, `ReaderStream`): los datos se escriben o se envían a trozos. El uso de memoria no depende del tamaño del fichero.
+Uploads and downloads go through streams (`into_data_stream`, `field.chunk()`, `ReaderStream`): data is written or sent in chunks. Memory usage doesn't depend on file size.
 
-### Dos formatos de subida
+### Two upload formats
 
-Se acepta tanto el cuerpo directo como multipart porque cubren clientes distintos: `fetch(url, { method: 'PUT', body: file })` envía el cuerpo directo; un `<form>` o `FormData` envía multipart. El formato se decide mirando el `Content-Type`.
+Both a direct body and multipart are accepted because they serve different clients: `fetch(url, { method: 'PUT', body: file })` sends a direct body; a `<form>` or `FormData` sends multipart. The format is chosen by looking at the `Content-Type`.
 
-### `PUT` para subir
+### `PUT` for uploads
 
-La URL ya identifica el recurso (`/files/{id}/{file_name}`) y repetir la subida deja el mismo resultado (sobrescribe). Eso es la semántica de `PUT` (idempotente), no la de `POST`.
+The URL already identifies the resource (`/files/{id}/{file_name}`) and repeating the upload leaves the same result (it overwrites). That's `PUT` semantics (idempotent), not `POST`.
 
-### Límite de tamaño con `DefaultBodyLimit`
+### Size limit: two layers
 
-El límite lo aplica Axum a nivel de router (`DefaultBodyLimit::max`), así que afecta tanto a subidas directas como a multipart y devuelve `413` sin que el handler tenga que contar bytes.
+The router enforces `MAX_BODY_LIMIT` with two layers, because each one covers a different path:
+
+- **`DefaultBodyLimit::max`** (Axum): only honored by Axum extractors such as `Multipart`. Covers multipart uploads.
+- **`RequestBodyLimitLayer`** (`tower-http`, `limit` feature): limits the raw request body. Needed for direct uploads, which read the `Request` by hand with `into_data_stream()` and therefore bypass `DefaultBodyLimit`. If the `Content-Length` already exceeds the limit, it responds `413` without reaching the handler.
 
 ### CORS
 
-`tower-http::CorsLayer` con un único origen (`ALLOWED_ORIGINS`) y solo los métodos `GET`, `PUT` y `DELETE`, para que solo tu frontend pueda llamar al servicio desde el navegador.
+`tower-http::CorsLayer` with a single origin (`ALLOWED_ORIGINS`), the `GET`, `PUT`, `DELETE` and `OPTIONS` (the browser *preflight*) methods, and the `Content-Type` header allowed, which the browser needs to `PUT` multipart or a specific type. This way only your frontend can call the service from the browser.
 
-### Errores tipados
+### Typed errors
 
-Todos los errores son variantes de `ResponseError` (en `src/lib.rs`), que implementa `IntoResponse`. Los handlers devuelven `Result<Response, ResponseError>` y usan `?`; la traducción a código HTTP está en un solo sitio.
+All errors are variants of `ResponseError` (in `src/lib.rs`), which implements `IntoResponse`. Handlers return `Result<Response, ResponseError>` and use `?`; the mapping to HTTP status codes lives in one place. The upload handler returns `Result<Response, Response>` because it also passes Axum extractor errors through as-is (for example, the multipart `413`).
 
 ### `lib.rs` + `main.rs`
 
-La app se construye en `lib.rs` (`app()`) y `main.rs` solo la sirve. Así los tests de integración (`tests/`) pueden importar la app y levantarla en un puerto aleatorio (`0.0.0.0:0`) sin duplicar código.
+The app is built in `lib.rs` (`app()`) and `main.rs` only serves it. This lets the integration tests (`tests/`) import the app and start it on a random port (`0.0.0.0:0`) without duplicating code.
 
 ## Docker
 
-### `Dockerfile`: build multi-stage
+### `Dockerfile`: multi-stage build
 
-1. **Builder** (`rust:1-slim-bookworm`): compila en release. Primero copia solo `Cargo.toml` y `Cargo.lock` y compila un `main` vacío, así **las dependencias quedan en una capa cacheada**. Al cambiar código en `src/` solo se recompila el crate, no todo Tokio/Axum.
-2. **Runtime** (`debian:bookworm-slim`): solo el binario. La imagen final no lleva el toolchain de Rust (cientos de MB menos y menos superficie de ataque).
+1. **Builder** (`rust:1-slim-bookworm`): compiles in release mode. It first copies only `Cargo.toml` and `Cargo.lock` and builds an empty `main`, so **dependencies end up in a cached layer**. When code in `src/` changes, only the crate is rebuilt, not all of Tokio/Axum.
+2. **Runtime** (`debian:bookworm-slim`): just the binary, with `WORKDIR /app` and the `/app/files` folder created. The final image doesn't include the Rust toolchain (hundreds of MB smaller and a smaller attack surface).
 
-Se usa la misma base Debian (bookworm) en las dos etapas para que el binario enlace contra la misma glibc. No hace falta OpenSSL en runtime: `jsonwebtoken` usa el backend `rust_crypto` (Rust puro).
+Both stages use the same Debian base (bookworm) so the binary links against the same glibc. OpenSSL isn't needed at runtime: `jsonwebtoken` uses the `rust_crypto` backend (pure Rust).
 
 ### `docker-compose.yml`
 
-- **`ports: 3050:3050`**: el servidor hace bind a `0.0.0.0:3050`. Con `127.0.0.1` no sería accesible desde fuera del contenedor.
-- **`env_file: .env`**: la configuración se pasa en runtime, no se mete en la imagen.
-- **`volumes: ./files:/app/files`**: los ficheros subidos viven en el host. Sin el volumen, se perderían al recrear el contenedor.
-- **`restart: unless-stopped`**: si el proceso cae (por ejemplo, un `panic`), Docker lo levanta otra vez.
+- **`ports: 3050:3050`**: the server binds to `0.0.0.0:3050`. With `127.0.0.1` it wouldn't be reachable from outside the container.
+- **`env_file: .env`**: configuration is passed at runtime, not baked into the image.
+- **`volumes: ./files:/app/files`**: uploaded files live on the host. Without the volume they would be lost when the container is recreated. Remember that `FILES_ROOT_PATH` must point here (`files` or `/app/files`).
+- **`restart: unless-stopped`**: if the process dies (for example, a `panic`), Docker brings it back up.
 
 ### `.dockerignore`
 
-Excluye `target/` (evita mandar GB de contexto al build), `files/`, `.git` y los `.env`. Los secretos **nunca** deben acabar dentro de la imagen.
+Excludes `target/` (avoids sending GBs of context to the build), `files/`, `.git` and the `.env` files. Secrets must **never** end up inside the image.
 
-## Tests y CI
+## Tests and CI
 
 ```bash
 cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-- Tests unitarios en `src/handlers/photos.rs` y de integración en `tests/handlers_tests.rs`, que levantan el servidor real y le hacen peticiones con `reqwest`.
-- Cubren: tokens incorrectos por usuario/fichero/scope, códigos de estado de cada error, límites de tamaño, casos raros de multipart y que no queden `.tmp` tras fallos.
-- Necesitan `JWT_SECRET`, `ALLOWED_ORIGINS` y `MAX_BODY_LIMIT` en el entorno (o en `.env`).
-- GitHub Actions (`.github/workflows/ci.yml`) ejecuta clippy con warnings como error y los tests en cada push a `main` y en cada PR.
+- 11 unit tests in `src/handlers/photos.rs` (regexes and JWT validation) and 30 integration tests in `tests/handlers_tests.rs`, which start the real server and send it requests with `reqwest`. They all pass right now.
+- They cover: tokens wrong by user/file/scope, missing or expired tokens, status codes for each error, size limits (direct and multipart), multipart edge cases, overwriting, and no `.tmp` files left after failures.
+- They need `JWT_SECRET`, `ALLOWED_ORIGINS`, `MAX_BODY_LIMIT` and `FILES_ROOT_PATH` in the environment (or in `.env`).
+- **Heads up**: the integration tests still hardcode the `files/` path to create and check files, so they need `FILES_ROOT_PATH=files`. Any other value makes them fail.
+- GitHub Actions (`.github/workflows/ci.yml`) sets those four variables to test values and runs clippy with warnings as errors plus the tests on every push to `main` and on every PR.
 
-## Estructura
+## Layout
 
 ```
 src/
-├── main.rs              # arranca el servidor en 0.0.0.0:3050
-├── lib.rs               # ResponseError + app()
-├── routes/mod.rs        # router, CORS, límite de tamaño
-└── handlers/photos.rs   # handlers, validación JWT y regex, escritura en disco
+├── main.rs              # loads .env and starts the server on 0.0.0.0:3050
+├── lib.rs               # AppConfig, ResponseError + app()
+├── routes/mod.rs        # router, config loading, CORS, size limits
+└── handlers/
+    ├── mod.rs
+    └── photos.rs        # handlers, JWT and regex validation, disk writes
 tests/
-└── handlers_tests.rs    # tests de integración
-files/                   # almacenamiento (montado como volumen en Docker)
+└── handlers_tests.rs    # integration tests
+files/                   # default storage (mounted as a volume in Docker)
 ```
