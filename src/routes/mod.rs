@@ -3,7 +3,7 @@ use crate::AppConfig;
 use axum::{
     Router,
     extract::DefaultBodyLimit,
-    http::Method,
+    http::{Method, header},
     routing::{delete, get, put},
 };
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer};
@@ -28,7 +28,8 @@ pub fn router() -> Router {
 
     let cors = CorsLayer::new()
         .allow_origin(allowed_origins)
-        .allow_methods(vec![Method::GET, Method::PUT, Method::DELETE]);
+        .allow_methods(vec![Method::GET, Method::OPTIONS, Method::PUT, Method::DELETE])
+        .allow_headers([header::CONTENT_TYPE]);
 
     Router::<AppConfig>::new()
         .route("/files/{id}/{file_name}", delete(delete_file))
